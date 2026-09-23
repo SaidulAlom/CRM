@@ -1,0 +1,6 @@
+{
+  "name": "CRM Web Application",
+  "description": "A browser-based customer relationship manager for small sales and support teams, with companies, contacts, deals, tasks, cases, calls, campaigns, and team analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
