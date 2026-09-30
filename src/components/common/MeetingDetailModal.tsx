@@ -21,6 +21,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Event, MeetingStatus } from '../../types';
+import { BrandLogo } from './BrandLogo';
 
 interface MeetingDetailModalProps {
   meeting: Event | null;
@@ -155,43 +156,46 @@ export const MeetingDetailModal: React.FC<MeetingDetailModalProps> = ({
       >
         {/* Header */}
         <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-start justify-between shrink-0">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(
-                  meeting.meetingStatus
-                )}`}
-              >
-                {meeting.meetingStatus || 'Scheduled'}
-              </span>
-              {meeting.reminderMinutes && (
-                <span className="flex items-center gap-1 text-[11px] text-indigo-200">
-                  <Bell size={12} />
-                  Reminder: {meeting.reminderMinutes}m before
+          <div className="flex items-start gap-3">
+            <BrandLogo size="md" />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(
+                    meeting.meetingStatus
+                  )}`}
+                >
+                  {meeting.meetingStatus || 'Scheduled'}
                 </span>
-              )}
-            </div>
-            <h2 className="text-lg font-bold text-white tracking-tight">{meeting.title}</h2>
-            <div className="flex flex-wrap items-center gap-3 text-slate-300 text-xs">
-              <span className="flex items-center gap-1.5 font-medium">
-                <CalendarIcon size={13} className="text-indigo-400" />
-                {new Date(meeting.startDate).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </span>
-              <span className="flex items-center gap-1.5 font-mono text-indigo-200 font-semibold">
-                <Clock size={13} className="text-indigo-400" />
-                {meeting.startTime} – {meeting.endTime}
-              </span>
-              {meeting.location && (
-                <span className="flex items-center gap-1 text-slate-300">
-                  <MapPin size={13} className="text-indigo-400" />
-                  {meeting.location}
+                {meeting.reminderMinutes && (
+                  <span className="flex items-center gap-1 text-[11px] text-indigo-200">
+                    <Bell size={12} />
+                    Reminder: {meeting.reminderMinutes}m before
+                  </span>
+                )}
+              </div>
+              <h2 className="text-lg font-bold text-white tracking-tight">{meeting.title}</h2>
+              <div className="flex flex-wrap items-center gap-3 text-slate-300 text-xs">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <CalendarIcon size={13} className="text-indigo-400" />
+                  {new Date(meeting.startDate).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
                 </span>
-              )}
+                <span className="flex items-center gap-1.5 font-mono text-indigo-200 font-semibold">
+                  <Clock size={13} className="text-indigo-400" />
+                  {meeting.startTime} – {meeting.endTime}
+                </span>
+                {meeting.location && (
+                  <span className="flex items-center gap-1 text-slate-300">
+                    <MapPin size={13} className="text-indigo-400" />
+                    {meeting.location}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

@@ -31,6 +31,7 @@ import {
   Info,
 } from 'lucide-react';
 import { Event, User as CRMUser, MeetingStatus, MeetingLocationType, MeetingTemplate } from '../../types';
+import { BrandLogo } from './BrandLogo';
 
 interface CreateMeetingModalProps {
   isOpen: boolean;
@@ -624,15 +625,16 @@ export const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0 border-b border-indigo-900/60">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600/90 flex items-center justify-center text-white shadow-sm ring-2 ring-indigo-400/30">
-              <CalendarIcon size={18} />
-            </div>
+            <BrandLogo size="md" />
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">
-                {editingMeeting ? 'Edit Meeting & Attendees' : 'Create Meeting'}
+              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <span>{editingMeeting ? 'Edit Event & Attendees' : 'Create Event / Meeting'}</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                  Calendar Module
+                </span>
               </h2>
               <p className="text-[11px] text-indigo-200/90">
-                Schedule synchronized meetings with real-time attendee availability checks and conflict detection.
+                Schedule synchronized events with real-time participant availability, conflict detection, and email alerts.
               </p>
             </div>
           </div>

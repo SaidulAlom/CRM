@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { UserRole, User } from '../../types';
 import { ProfilePreferencesView } from './profile/ProfilePreferencesView';
+import { BrandLogo } from '../common/BrandLogo';
 
 interface SettingsViewProps {
   initialTab?: 'profile' | 'organisation' | 'users' | 'picklists' | 'demo';
@@ -40,6 +41,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'profil
   const [orgWebsite, setOrgWebsite] = useState(organisation.website);
   const [orgCurrency, setOrgCurrency] = useState(organisation.defaultCurrency);
   const [orgTimeZone, setOrgTimeZone] = useState(organisation.timeZone);
+  const [orgLogoUrl, setOrgLogoUrl] = useState(organisation.logoUrl || '');
 
   // New user state
   const [newUserName, setNewUserName] = useState('');
@@ -54,8 +56,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'profil
       website: orgWebsite,
       defaultCurrency: orgCurrency,
       timeZone: orgTimeZone,
+      logoUrl: orgLogoUrl.trim(),
     });
-    alert('Organisation profile saved successfully!');
+    alert('Organisation profile and logo saved successfully!');
   };
 
   const handleInviteUser = (e: React.FormEvent) => {
@@ -190,6 +193,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'profil
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-2xl text-xs">
           <form onSubmit={handleSaveOrg} className="space-y-4">
             <h3 className="font-bold text-sm text-slate-900">Organisation Profile (FR-17.1)</h3>
+
+            {/* Logo Configuration */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/90 space-y-3">
+              <label className="block font-bold text-slate-800">Organisation Logo</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="shrink-0 flex items-center justify-center p-3 bg-slate-900 rounded-xl border border-slate-800 shadow-xs">
+                  <BrandLogo size="lg" customUrl={orgLogoUrl} />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <p className="text-[11px] text-slate-500">
+                    This logo appears in your CRM sidebar, navigation bar, email invitations, and exports.
+                  </p>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Custom Logo Image URL (PNG, SVG, JPG)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://example.com/logo.png (leave blank to use default Apex SVG mark)"
+                      value={orgLogoUrl}
+                      onChange={(e) => setOrgLogoUrl(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
+                    />
+                  </div>
+                  {orgLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setOrgLogoUrl('')}
+                      className="text-[11px] text-rose-600 hover:text-rose-800 font-medium"
+                    >
+                      Reset to Default Vector Apex Logo
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
             <div>
               <label className="block font-medium text-slate-700 mb-1">Organisation Name</label>

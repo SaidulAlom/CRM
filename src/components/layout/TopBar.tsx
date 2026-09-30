@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Bookmark,
 } from 'lucide-react';
+import { BrandLogo } from '../common/BrandLogo';
 
 export const TopBar: React.FC = () => {
   const {
@@ -85,6 +86,11 @@ export const TopBar: React.FC = () => {
       id="crm-topbar"
       className="h-16 bg-white border-b border-slate-200 px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 z-10"
     >
+      {/* Mobile Brand Logo */}
+      <div className="flex items-center md:hidden shrink-0">
+        <BrandLogo size="xs" />
+      </div>
+
       {/* Search Input Bar (Cmd+K trigger) */}
       <div className="flex-1 max-w-xl">
         <button

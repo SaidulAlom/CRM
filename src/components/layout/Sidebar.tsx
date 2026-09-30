@@ -30,6 +30,8 @@ import {
   UserCog,
 } from 'lucide-react';
 
+import { BrandLogo } from '../common/BrandLogo';
+
 interface SidebarProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
@@ -85,34 +87,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
       }`}
     >
       {/* Header / Brand */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/60">
-        {!collapsed && (
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
-              FC
-            </div>
-            <div className="truncate">
-              <h1 className="font-semibold text-sm text-white tracking-tight leading-tight truncate">
-                {organisation.name}
-              </h1>
-              <p className="text-[11px] text-slate-400 font-medium truncate">
-                CRM Workspace
-              </p>
-            </div>
-          </div>
-        )}
-        {collapsed && (
-          <div className="w-8 h-8 mx-auto rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-sm">
-            FC
-          </div>
+      <div className="h-16 flex items-center justify-between px-3.5 border-b border-slate-800 bg-slate-950/60">
+        {!collapsed ? (
+          <BrandLogo size="md" showText={true} className="flex-1 mr-2" />
+        ) : (
+          <BrandLogo size="sm" collapsed={true} className="mx-auto" />
         )}
         <button
           id="toggle-sidebar-collapse"
           onClick={() => setCollapsed(!collapsed)}
-          className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 ml-auto hidden md:block"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 shrink-0 hidden md:block transition-colors"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
       </div>
 
