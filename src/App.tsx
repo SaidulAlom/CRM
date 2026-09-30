@@ -12,6 +12,8 @@ import { CallConsoleModal } from './components/common/CallConsoleModal';
 import { DuplicateMergeModal } from './components/common/DuplicateMergeModal';
 import { CustomViewModal } from './components/views/customViews/CustomViewModal';
 import { ManageViewsModal } from './components/views/customViews/ManageViewsModal';
+import { CreateMeetingModal } from './components/common/CreateMeetingModal';
+import { MeetingDetailModal } from './components/common/MeetingDetailModal';
 
 // Views
 import { HomeView } from './components/views/HomeView';
@@ -32,10 +34,41 @@ import { MessagesView } from './components/views/MessagesView';
 import { ResourcesView } from './components/views/ResourcesView';
 import { ImportExportView } from './components/views/ImportExportView';
 import { SettingsView } from './components/views/SettingsView';
+import { ProfilePreferencesView } from './components/views/profile/ProfilePreferencesView';
 
 const CRMAppContent: React.FC = () => {
-  const { activeNav, setGlobalSearchOpen } = useCRM();
+  const {
+    activeNav,
+    currentUser,
+    setGlobalSearchOpen,
+    createMeetingModalOpen,
+    createMeetingPrefill,
+    closeCreateMeeting,
+    meetingDetailModalMeeting,
+    closeMeetingDetail,
+    editMeetingModalMeeting,
+    openEditMeeting,
+    closeEditMeeting,
+  } = useCRM();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Sync theme and skin to documentElement
+  useEffect(() => {
+    const root = document.documentElement;
+    const theme = currentUser?.preferences?.theme || 'light';
+    const skin = currentUser?.preferences?.crmSkin || 'indigo';
+
+    if (
+      theme === 'dark' ||
+      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    ) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    root.setAttribute('data-theme', theme);
+    root.setAttribute('data-skin', skin);
+  }, [currentUser?.preferences?.theme, currentUser?.preferences?.crmSkin]);
 
   // Global Keyboard shortcuts: Cmd+K / Ctrl+K for search
   useEffect(() => {
@@ -66,6 +99,7 @@ const CRMAppContent: React.FC = () => {
       case 'cases':
         return <CasesView />;
       case 'calls':
+      case 'call_list':
         return <CallsView />;
       case 'documents':
         return <DocumentsView />;
@@ -85,6 +119,8 @@ const CRMAppContent: React.FC = () => {
         return <ResourcesView />;
       case 'import_export':
         return <ImportExportView />;
+      case 'profile':
+        return <ProfilePreferencesView />;
       case 'setup':
         return <SettingsView />;
       default:
@@ -116,6 +152,26 @@ const CRMAppContent: React.FC = () => {
       <DuplicateMergeModal />
       <CustomViewModal />
       <ManageViewsModal />
+
+      {/* CRM Meeting Creation & Management Modals */}
+      <CreateMeetingModal
+        isOpen={createMeetingModalOpen || !!editMeetingModalMeeting}
+        onClose={() => {
+          if (editMeetingModalMeeting) closeEditMeeting();
+          else closeCreateMeeting();
+        }}
+        editingMeeting={editMeetingModalMeeting}
+        prefill={createMeetingPrefill}
+      />
+
+      <MeetingDetailModal
+        meeting={meetingDetailModalMeeting}
+        onClose={closeMeetingDetail}
+        onEdit={(mtg) => {
+          closeMeetingDetail();
+          openEditMeeting(mtg);
+        }}
+      />
     </div>
   );
 };

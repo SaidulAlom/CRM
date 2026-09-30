@@ -11,6 +11,7 @@ import {
   Building2,
   Users,
   Search,
+  MessageSquare,
 } from 'lucide-react';
 import { Folder, DocumentFile } from '../../types';
 
@@ -26,6 +27,7 @@ export const DocumentsView: React.FC = () => {
     addFolder,
     addDocument,
     deleteDocument,
+    setActiveNav,
   } = useCRM();
 
   const [activeFolderId, setActiveFolderId] = useState<string>('folder-1');
@@ -257,15 +259,33 @@ export const DocumentsView: React.FC = () => {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => alert(`Simulated downloading ${doc.fileName}`)}
+                              onClick={() => {
+                                const content = `Apex CRM Document: ${doc.title}\nFile: ${doc.fileName}\nVersion: ${doc.version || '1.0'}\nFile Size: ${doc.fileSize} bytes\nOrigin: Documents Module`;
+                                const blob = new Blob([content], { type: doc.fileType || 'text/plain' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = doc.fileName;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }}
                               className="p-1 text-slate-400 hover:text-indigo-600 rounded"
                               title="Download document"
                             >
                               <Download size={14} />
                             </button>
                             <button
+                              onClick={() => setActiveNav('messages')}
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+                              title="Attach & discuss in Agent Messages"
+                            >
+                              <MessageSquare size={14} />
+                            </button>
+                            <button
                               onClick={() => {
-                                if (confirm(`Delete ${doc.title}?`)) deleteDocument(doc.id);
+                                deleteDocument(doc.id);
                               }}
                               className="p-1 text-slate-300 hover:text-rose-600 rounded"
                               title="Delete file"

@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useCRM } from '../../context/CRMContext';
+import { CRMNotification } from '../../types';
 import {
   Search,
   Plus,
@@ -20,6 +21,8 @@ import {
   UserCheck,
   FileText,
   Star,
+  AlertTriangle,
+  Bookmark,
 } from 'lucide-react';
 
 export const TopBar: React.FC = () => {
@@ -35,6 +38,13 @@ export const TopBar: React.FC = () => {
     isShortlistOpen,
     setIsShortlistOpen,
     shortlist,
+    notifications,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+    clearNotifications,
+    openCreateMeeting,
+    openMeetingDetail,
+    events,
   } = useCRM();
 
   const [quickCreateMenuOpen, setQuickCreateMenuOpen] = useState(false);
@@ -44,6 +54,14 @@ export const TopBar: React.FC = () => {
   const qcRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  const myNotifications = useMemo(() => {
+    return notifications.filter((n: CRMNotification) => n.userId === currentUser.id);
+  }, [notifications, currentUser.id]);
+
+  const unreadNotifCount = useMemo(() => {
+    return myNotifications.filter((n: CRMNotification) => !n.read).length;
+  }, [myNotifications]);
 
   // Close menus on outside click
   useEffect(() => {
@@ -200,13 +218,13 @@ export const TopBar: React.FC = () => {
               <button
                 id="quick-create-event"
                 onClick={() => {
-                  openQuickCreate('event');
+                  openCreateMeeting();
                   setQuickCreateMenuOpen(false);
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
               >
                 <Calendar size={15} className="text-slate-400" />
-                <span>Meeting / Event</span>
+                <span>Create Meeting</span>
               </button>
               <button
                 id="quick-create-appointment"
@@ -229,6 +247,17 @@ export const TopBar: React.FC = () => {
               >
                 <FileText size={15} className="text-slate-400" />
                 <span>Note</span>
+              </button>
+              <button
+                id="quick-create-resource"
+                onClick={() => {
+                  setActiveNav('resources');
+                  setQuickCreateMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+              >
+                <Bookmark size={15} className="text-slate-400" />
+                <span>Resource / Link</span>
               </button>
             </div>
           )}
@@ -254,6 +283,151 @@ export const TopBar: React.FC = () => {
             </span>
           )}
         </button>
+
+        {/* In-app Notification Bell Dropdown */}
+        <div className="relative" ref={notifRef}>
+          <button
+            id="notification-bell-btn"
+            onClick={() => setNotifMenuOpen(!notifMenuOpen)}
+            className={`relative p-2 rounded-lg border text-xs font-medium transition-all shadow-2xs ${
+              notifMenuOpen
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-300'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="CRM Notifications & Reminders"
+            aria-label="View notifications"
+          >
+            <Bell size={15} className={unreadNotifCount > 0 ? 'text-indigo-600' : 'text-slate-500'} />
+            {unreadNotifCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full ring-2 ring-white">
+                {unreadNotifCount}
+              </span>
+            )}
+          </button>
+
+          {notifMenuOpen && (
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-30 animate-in fade-in-50 zoom-in-95 duration-100">
+              <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">CRM Notifications</h4>
+                  <p className="text-[10px] text-slate-500">Meetings, calendar alerts & reminders</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {unreadNotifCount > 0 && (
+                    <button
+                      onClick={markAllNotificationsAsRead}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold px-1.5 py-0.5 rounded hover:bg-indigo-50 transition-colors"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  {myNotifications.length > 0 && (
+                    <button
+                      onClick={clearNotifications}
+                      className="text-[10px] text-slate-400 hover:text-slate-600 px-1.5 py-0.5 rounded hover:bg-slate-50"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                {myNotifications.length === 0 ? (
+                  <div className="p-6 text-center text-slate-400 text-xs">
+                    No notifications right now.
+                  </div>
+                ) : (
+                  myNotifications.map((n: CRMNotification) => {
+                    const isMeetingInvite = n.type === 'meeting_invite';
+                    const isReminder = n.type === 'meeting_reminder';
+                    const isCancel = n.type === 'meeting_cancelled';
+                    const isReschedule = n.type === 'meeting_rescheduled';
+
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          markNotificationAsRead(n.id);
+                          if (n.meetingId) {
+                            const mtg = events.find((e) => e.id === n.meetingId);
+                            if (mtg) {
+                              openMeetingDetail(mtg);
+                              setNotifMenuOpen(false);
+                            } else {
+                              setActiveNav('calendar');
+                              setNotifMenuOpen(false);
+                            }
+                          }
+                        }}
+                        className={`p-3 transition-colors cursor-pointer hover:bg-slate-50 flex items-start gap-2.5 ${
+                          !n.read ? 'bg-indigo-50/40' : ''
+                        }`}
+                      >
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-white ${
+                            isCancel
+                              ? 'bg-rose-600'
+                              : isReminder
+                              ? 'bg-amber-600'
+                              : isReschedule
+                              ? 'bg-purple-600'
+                              : 'bg-indigo-600'
+                          }`}
+                        >
+                          {isReminder ? (
+                            <Clock size={13} />
+                          ) : isCancel ? (
+                            <AlertTriangle size={13} />
+                          ) : (
+                            <Calendar size={13} />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-xs text-slate-900 truncate">{n.title}</span>
+                            {!n.read && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-600 leading-snug mt-0.5">{n.message}</p>
+                          <span className="text-[9px] text-slate-400 block mt-1">
+                            {new Date(n.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 px-3 pt-1.5 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setActiveNav('calendar');
+                    setNotifMenuOpen(false);
+                  }}
+                  className="text-[11px] text-indigo-600 font-semibold hover:underline"
+                >
+                  Go to Calendar
+                </button>
+                <button
+                  onClick={() => {
+                    openCreateMeeting();
+                    setNotifMenuOpen(false);
+                  }}
+                  className="text-[11px] text-indigo-600 font-semibold hover:underline"
+                >
+                  + New Meeting
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Role & User Switcher (Critical for evaluating Admin, Manager, Standard User permissions & sharing policy) */}
         <div className="relative" ref={userRef}>
@@ -322,7 +496,19 @@ export const TopBar: React.FC = () => {
                 );
               })}
 
-              <div className="border-t border-slate-100 mt-1 pt-1">
+              <div className="border-t border-slate-100 mt-1 pt-1 space-y-0.5">
+                <button
+                  id="open-profile-from-user-menu"
+                  onClick={() => {
+                    setActiveNav('profile');
+                    setUserMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-indigo-600 font-medium"
+                >
+                  <UserCheck size={14} className="text-indigo-500" />
+                  <span>My Profile & Preferences</span>
+                </button>
+
                 <button
                   id="open-setup-from-user-menu"
                   onClick={() => {
@@ -332,7 +518,7 @@ export const TopBar: React.FC = () => {
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-indigo-600"
                 >
                   <Settings size={14} className="text-slate-400" />
-                  <span>Setup & Preferences</span>
+                  <span>Organisation & System Setup</span>
                 </button>
               </div>
             </div>

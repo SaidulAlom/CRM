@@ -12,6 +12,44 @@ export interface Organisation {
   defaultCurrency: string;
   timeZone: string;
   sharingPolicy: SharingPolicy;
+  teamWelcomeText?: string;
+  allowTeamSharing?: boolean;
+  dataRetentionPolicyDays?: number; // 0 for unlimited, or 30, 90, 180, 365
+  enforceAvailabilityChecking?: boolean;
+}
+
+export type CRMSkin = 'slate' | 'indigo' | 'emerald' | 'midnight' | 'sunset' | 'nordic';
+
+export type DateFormatOption = 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'DD-MMM-YYYY';
+
+export type ProfileVisibility = 'public' | 'manager_only' | 'private';
+
+export interface WorkDaySchedule {
+  enabled: boolean;
+  start: string; // "09:00"
+  end: string; // "17:00"
+  breakStart?: string; // "12:30"
+  breakEnd?: string; // "13:30"
+}
+
+export type WorkDayName =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
+export interface UserWorkSchedule {
+  timezone?: string;
+  monday: WorkDaySchedule;
+  tuesday: WorkDaySchedule;
+  wednesday: WorkDaySchedule;
+  thursday: WorkDaySchedule;
+  friday: WorkDaySchedule;
+  saturday: WorkDaySchedule;
+  sunday: WorkDaySchedule;
 }
 
 export interface UserPreferences {
@@ -19,22 +57,47 @@ export interface UserPreferences {
   timeZone: string;
   welcomeText: string;
   clockMode: '12h' | '24h';
-  theme: 'light' | 'dark';
-  activityDepth: number; // in days
+  theme: 'light' | 'dark' | 'system';
+  crmSkin?: CRMSkin;
+  dateFormat?: DateFormatOption;
+  language?: string;
+  activityDepth: number; // in days: 7, 30, 90, 180, 365, or 99999 for all
   workingDayStart: string; // e.g. "09:00"
   workingDayEnd: string; // e.g. "17:00"
+  workSchedule?: UserWorkSchedule;
+  checkSchedulesAgainstAvailability?: boolean;
+  profileVisibility?: ProfileVisibility;
+  shareWorkSchedule?: boolean;
+  shareContactDetails?: boolean;
+  allowDirectMessaging?: boolean;
 }
+
+export type UserStatus = 'Available' | 'In a Meeting' | 'On Call' | 'Away' | 'Out of Office' | 'Busy';
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  department?: string;
+  team?: string;
+  jobTitle?: string;
   regionId?: string;
   avatar?: string;
   active: boolean;
   preferences: UserPreferences;
   unavailableDates: string[]; // YYYY-MM-DD
+  phone?: string;
+  mobile?: string;
+  welcomeMessage?: string;
+  status?: UserStatus;
+  statusMessage?: string;
+  location?: string;
+  bio?: string;
+  skills?: string[];
+  joinedDate?: string;
+  managerId?: string;
+  lastActive?: string;
 }
 
 export interface Region {
@@ -194,6 +257,42 @@ export interface Case {
   deletedAt?: string;
 }
 
+export type MeetingStatus = 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled' | 'Rescheduled';
+export type MeetingLocationType = 'office' | 'online' | 'custom';
+
+export type EventType =
+  | 'Meeting'
+  | 'Appointment'
+  | 'Call'
+  | 'Task'
+  | 'Follow-up'
+  | 'Customer Visit'
+  | 'Sales Meeting'
+  | 'Internal Meeting'
+  | 'Training'
+  | 'Other';
+
+export type ConfirmationStatus = 'Confirmed' | 'Pending' | 'Not Confirmed' | 'Cancelled';
+
+export interface EventAttachment {
+  name: string;
+  url?: string;
+  size?: string;
+}
+
+export interface UserAvailabilityResult {
+  available: boolean;
+  status: 'free' | 'busy' | 'unavailable';
+  reason?: string;
+  conflictingEvent?: {
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    date: string;
+  };
+}
+
 export interface Event {
   id: string;
   title: string;
@@ -209,14 +308,55 @@ export interface Event {
   confirmed: boolean;
   companyId?: string;
   contactId?: string;
+  dealId?: string;
+  caseId?: string;
+  leadId?: string;
   location?: string;
+  locationType?: MeetingLocationType;
+  meetingLink?: string;
   directions?: string;
   notes?: string;
+  agenda?: string;
   emailAlert: boolean;
   ownerId: string;
+  isMeeting?: boolean;
+  eventType?: EventType | string;
+  confirmationStatus?: ConfirmationStatus;
+  meetingStatus?: MeetingStatus;
+  meetingOutcome?: string;
+  outcomeNotes?: string;
+  attachments?: EventAttachment[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+}
+
+export interface MeetingTemplate {
+  id: string;
+  name: string;
+  title: string;
+  agenda: string;
+  durationMinutes: number;
+  locationType?: MeetingLocationType;
+  location?: string;
+  meetingLink?: string;
+  reminderMinutes?: number;
+  category: 'team' | 'sales' | 'engineering' | 'leadership' | 'client' | 'custom';
+  description?: string;
+  isDefault?: boolean;
+  createdAt?: string;
+}
+
+export interface CRMNotification {
+  id: string;
+  userId: string;
+  type: 'meeting_invite' | 'meeting_update' | 'meeting_cancelled' | 'meeting_rescheduled' | 'meeting_reminder' | 'call_reminder' | 'task_alert';
+  title: string;
+  message: string;
+  meetingId?: string;
+  read: boolean;
+  createdAt: string;
+  actionUrl?: string;
 }
 
 export interface CallScriptElement {
@@ -234,9 +374,25 @@ export interface CallScript {
   createdAt: string;
 }
 
+export type CallStatus =
+  | 'Pending'
+  | 'Scheduled'
+  | 'In Progress'
+  | 'Completed'
+  | 'No Answer'
+  | 'Rescheduled'
+  | 'Cancelled'
+  | 'Overdue';
+
+export type CallPriority = 'High' | 'Medium' | 'Low';
+
 export interface Call {
   id: string;
   subject: string;
+  callPurpose?: string; // Purpose or intent of the call
+  priority?: CallPriority; // Priority: High, Medium, Low
+  status?: CallStatus; // Current call status
+  dueDate?: string; // Due date for calls to be made
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   durationMinutes?: number; // Call duration scheduled (e.g. 15, 30, 45, 60 mins)
@@ -244,6 +400,9 @@ export interface Call {
   reminderMinutes?: number; // Reminder notification in minutes prior to call
   direction: 'inbound' | 'outbound';
   outcomeStatus: string;
+  outcomeNotes?: string;
+  followUpDate?: string;
+  nextAction?: string;
   companyId?: string;
   contactId?: string;
   externalName?: string;
@@ -261,16 +420,78 @@ export interface Call {
   deletedAt?: string;
 }
 
+export type TargetType =
+  | 'revenue'
+  | 'units_sold'
+  | 'deals_closed'
+  | 'cases_resolved'
+  | 'new_customers'
+  | 'custom_kpi';
+
+export type TargetPeriod = 'month' | 'quarter' | 'year' | 'custom';
+
+export type TargetPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+
+export type TargetStatus =
+  | 'Draft'
+  | 'Upcoming'
+  | 'Active'
+  | 'On Track'
+  | 'At Risk'
+  | 'Completed'
+  | 'Expired'
+  | 'Cancelled';
+
+export interface TargetHistoryItem {
+  id: string;
+  targetId: string;
+  timestamp: string;
+  actorId: string;
+  actorName: string;
+  action:
+    | 'created'
+    | 'updated'
+    | 'status_changed'
+    | 'value_changed'
+    | 'members_changed'
+    | 'achievement_overridden'
+    | 'completed'
+    | 'notification_sent';
+  details: string;
+  oldValue?: string | number;
+  newValue?: string | number;
+}
+
+export interface TargetNotificationsConfig {
+  onAssignment: boolean;
+  onMilestone: boolean;
+  onApproachingDeadline: boolean;
+  onFallingBehind: boolean;
+}
+
 export interface Target {
   id: string;
   name: string;
-  type: 'units_sold' | 'revenue' | 'cases_resolved';
+  description?: string;
+  type: TargetType;
+  customKpiName?: string;
+  customKpiUnit?: string;
   goalValue: number;
-  period: 'month' | 'quarter' | 'year';
+  period: TargetPeriod;
   startDate: string;
   endDate: string;
   assignedUserIds: string[];
+  department?: string;
+  priority?: TargetPriority;
+  status?: TargetStatus;
+  manualAchievement?: number;
+  manualOverrideStatus?: boolean;
+  currency?: string;
   createdAt: string;
+  updatedAt?: string;
+  createdBy?: string;
+  history?: TargetHistoryItem[];
+  notificationsConfig?: TargetNotificationsConfig;
 }
 
 export interface Folder {
@@ -372,6 +593,16 @@ export interface CustomForm {
   createdAt: string;
 }
 
+export interface DocumentAttachment {
+  id: string;
+  title: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  version?: string;
+  folderId?: string;
+}
+
 export interface MessageReply {
   id: string;
   authorId: string;
@@ -379,6 +610,7 @@ export interface MessageReply {
   authorAvatar?: string;
   text: string;
   createdAt: string;
+  attachedDocuments?: DocumentAttachment[];
 }
 
 export interface MessageThread {
@@ -393,6 +625,7 @@ export interface MessageThread {
   targetUserId?: string;
   targetUserName?: string;
   isPrivate?: boolean;
+  attachedDocuments?: DocumentAttachment[];
 }
 
 export interface DirectMessage {
@@ -411,18 +644,37 @@ export interface DirectMessage {
     id: string;
     title: string;
   };
+  attachedDocuments?: DocumentAttachment[];
 }
+
+export type ResourceType = 'hyperlink' | 'text' | 'document' | 'quicklink';
+export type ResourceVisibility = 'everyone' | 'team' | 'private';
 
 export interface SharedResource {
   id: string;
   title: string;
-  type: 'link' | 'note';
+  type: ResourceType | 'link' | 'note';
+  description?: string;
   url?: string;
   body?: string;
   content?: string;
+  category: string;
   tags?: string[];
+  visibility: ResourceVisibility;
+  isPinned?: boolean;
+  isFavorite?: boolean;
   createdBy: string;
+  createdById?: string;
   createdAt: string;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
+  viewsCount?: number;
+  lastAccessedAt?: string;
+  fileName?: string;
+  fileSize?: string;
+  fileType?: string;
+  fileUrl?: string;
+  documentVersion?: string;
 }
 
 export interface AuditLogItem {
@@ -497,6 +749,117 @@ export interface SavedShortlist {
   items: ShortlistItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------
+// Contact Import, CRM Migration & Data Export Types
+// ---------------------------------------------------------
+
+export type ImportSourceApp =
+  | 'outlook'
+  | 'palm'
+  | 'act'
+  | 'goldmine'
+  | 'salesforce_contacts'
+  | 'salesforce_leads'
+  | 'generic_csv'
+  | 'custom';
+
+export type DelimiterType = 'comma' | 'tab' | 'semicolon' | 'pipe' | 'custom';
+
+export type DuplicateHandlingMode = 'skip' | 'update' | 'create_new' | 'ask_user';
+
+export type DuplicateMatchRule = 'email' | 'phone' | 'name_and_company' | 'name_only';
+
+export interface ColumnMappingItem {
+  sourceColumn: string;
+  targetField: string; // Contact model key (e.g., 'firstName', 'lastName', 'email', 'phone', etc.) or '__ignore__'
+  sampleValue?: string;
+  isRequired?: boolean;
+}
+
+export interface ParsedImportRow {
+  rowNumber: number;
+  originalValues: Record<string, string>;
+  mappedRecord: Partial<Contact>;
+  isValid: boolean;
+  errors: string[];
+  isDuplicate: boolean;
+  duplicateOfId?: string;
+  duplicateOfName?: string;
+  duplicateConflictReason?: string;
+  action: 'insert' | 'update' | 'skip' | 'error';
+}
+
+export interface ImportPreviewStats {
+  totalRecords: number;
+  validRecords: number;
+  invalidRecords: number;
+  duplicateRecords: number;
+  missingRequiredCount: number;
+  mappingErrorsCount: number;
+}
+
+export interface ImportHistoryRecord {
+  id: string;
+  filename: string;
+  fileSize: number;
+  sourceApp: ImportSourceApp | string;
+  delimiter: string;
+  importedBy: string;
+  importedByName: string;
+  timestamp: string;
+  totalRecords: number;
+  successCount: number;
+  updatedCount: number;
+  duplicateCount: number;
+  failedCount: number;
+  status: 'Completed' | 'Partially Completed' | 'Failed';
+  duplicateHandlingMode: DuplicateHandlingMode;
+  errorReport?: {
+    rowNumber: number;
+    rawText: string;
+    errors: string[];
+  }[];
+}
+
+export type ExportEntityType =
+  | 'companies'
+  | 'contacts'
+  | 'combined'
+  | 'deals'
+  | 'cases'
+  | 'tasks'
+  | 'events'
+  | 'all';
+
+export type ExportDestination = 'download' | 'browser' | 'excel';
+
+export type ExportDelimiterType = 'comma' | 'tab' | 'semicolon' | 'pipe' | 'custom';
+
+export type ExportEncapsulationType = 'double' | 'single' | 'none' | 'custom';
+
+export type ExportRowSeparatorType = 'crlf' | 'lf' | 'cr';
+
+export interface ExportHistoryRecord {
+  id: string;
+  entity: ExportEntityType;
+  entityLabel?: string;
+  filename: string;
+  format: 'csv' | 'tab' | 'semicolon' | 'pipe' | 'custom' | 'excel';
+  destination: ExportDestination;
+  delimiter: string;
+  encapsulation: ExportEncapsulationType;
+  rowSeparator: ExportRowSeparatorType;
+  selectedFields: string[];
+  includeHeaders: boolean;
+  recordsCount: number;
+  exportedBy: string;
+  exportedByName: string;
+  timestamp: string;
+  status: 'Completed' | 'Failed';
+  appliedFiltersSummary?: string;
+  fileSize?: number;
 }
 
 

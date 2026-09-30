@@ -23,7 +23,9 @@ import {
   Campaign,
   CustomForm,
   MessageThread,
+  MessageReply,
   DirectMessage,
+  DocumentAttachment,
   SharedResource,
   AuditLogItem,
   SavedCustomView,
@@ -32,7 +34,15 @@ import {
   ShortlistItem,
   ShortlistCategory,
   SavedShortlist,
+  CRMNotification,
+  UserAvailabilityResult,
+  MeetingTemplate,
+  ImportHistoryRecord,
+  ExportHistoryRecord,
+  UserPreferences,
+  UserWorkSchedule,
 } from '../types';
+import { isWithinWorkingHours, DEFAULT_WORK_SCHEDULE } from '../utils/profileUtils';
 import {
   initialOrganisation,
   initialUsers,
@@ -58,8 +68,13 @@ import {
   initialMessageThreads,
   initialDirectMessages,
   initialSharedResources,
+  defaultResourceCategories,
   initialAuditLogs,
   initialSavedViews,
+  initialNotifications,
+  initialMeetingTemplates,
+  initialImportHistory,
+  initialExportHistory,
 } from '../mockData';
 
 export type { ShortlistItem, ShortlistCategory, SavedShortlist };
@@ -123,7 +138,10 @@ interface CRMContextType {
   switchUser: (userId: string) => void;
   addUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
+  updateUserPreferences: (userId: string, preferences: Partial<UserPreferences>) => void;
+  updateUserWorkSchedule: (userId: string, schedule: UserWorkSchedule) => void;
   toggleUserActive: (id: string) => void;
+  purgeAuditLogs: (retentionDays: number) => void;
 
   // Regions & Availability
   regions: Region[];
@@ -135,8 +153,9 @@ interface CRMContextType {
     userId: string,
     date: string,
     startTime: string,
-    endTime: string
-  ) => { available: boolean; status: 'free' | 'busy' | 'unavailable'; reason?: string };
+    endTime: string,
+    excludeEventId?: string
+  ) => UserAvailabilityResult;
 
   // Fields & Sets
   extendedFields: ExtendedField[];
@@ -187,12 +206,65 @@ interface CRMContextType {
   addCaseNote: (caseId: string, text: string) => void;
   deleteCase: (id: string) => void;
 
-  // Events & Calendar
+  // Events, Meetings & Calendar
   events: Event[];
   filteredEvents: Event[];
   addEvent: (evt: Omit<Event, 'id' | 'createdAt' | 'updatedAt'>) => Event;
   updateEvent: (id: string, updates: Partial<Event>) => void;
   deleteEvent: (id: string) => void;
+
+  // Meetings Modals & Scheduling System
+  createMeetingModalOpen: boolean;
+  createMeetingPrefill?: {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    companyId?: string;
+    contactId?: string;
+    dealId?: string;
+    caseId?: string;
+    leadId?: string;
+  };
+  openCreateMeeting: (prefill?: {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    companyId?: string;
+    contactId?: string;
+    dealId?: string;
+    caseId?: string;
+    leadId?: string;
+  }) => void;
+  closeCreateMeeting: () => void;
+
+  meetingDetailModalMeeting: Event | null;
+  openMeetingDetail: (meeting: Event) => void;
+  closeMeetingDetail: () => void;
+
+  editMeetingModalMeeting: Event | null;
+  openEditMeeting: (meeting: Event) => void;
+  closeEditMeeting: () => void;
+
+  createMeeting: (meetingData: Omit<Event, 'id' | 'createdAt' | 'updatedAt'>) => Event;
+  updateMeeting: (meetingId: string, updates: Partial<Event>, notifyAttendees?: boolean) => void;
+  cancelMeeting: (meetingId: string, reason?: string) => void;
+  rescheduleMeeting: (meetingId: string, newDate: string, newStartTime: string, newEndTime: string, reason?: string) => void;
+  recordMeetingOutcome: (meetingId: string, outcome: string, notes?: string) => void;
+  deleteMeeting: (meetingId: string) => void;
+  duplicateMeeting: (meetingId: string) => Event | undefined;
+
+  // Meeting Templates
+  meetingTemplates: MeetingTemplate[];
+  saveMeetingTemplate: (template: Omit<MeetingTemplate, 'id' | 'createdAt'>, existingId?: string) => MeetingTemplate;
+  deleteMeetingTemplate: (id: string) => void;
+  resetMeetingTemplates: () => void;
+
+  // In-app Notifications
+  notifications: CRMNotification[];
+  addNotification: (notif: Omit<CRMNotification, 'id' | 'createdAt'>) => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  clearNotifications: () => void;
 
   // Calls & Scripts
   calls: Call[];
@@ -200,6 +272,15 @@ interface CRMContextType {
   callScripts: CallScript[];
   addCall: (call: Omit<Call, 'id' | 'createdAt' | 'updatedAt'>, createContactIfNew?: boolean) => Call;
   updateCall: (id: string, updates: Partial<Call>) => void;
+  completeCall: (
+    callId: string,
+    outcome: string,
+    notes?: string,
+    followUpDate?: string,
+    nextAction?: string
+  ) => void;
+  rescheduleCall: (callId: string, newDate: string, newTime: string, notes?: string) => void;
+  deleteCall: (callId: string) => void;
   completeCallFromConsole: (
     callId: string,
     outcomeStatus: string,
@@ -213,9 +294,12 @@ interface CRMContextType {
 
   // Targets
   targets: Target[];
-  addTarget: (target: Omit<Target, 'id' | 'createdAt'>) => void;
-  updateTarget: (id: string, updates: Partial<Target>) => void;
+  addTarget: (target: Omit<Target, 'id' | 'createdAt'>) => Target;
+  updateTarget: (id: string, updates: Partial<Target>, note?: string) => void;
   deleteTarget: (id: string) => void;
+  overrideTargetProgress: (id: string, manualValue: number, status?: Target['status'], note?: string) => void;
+  sendTargetReminder: (targetId: string, customMessage?: string) => void;
+  resetTargetsToDefault: () => void;
 
   // Documents & Folders
   folders: Folder[];
@@ -244,18 +328,38 @@ interface CRMContextType {
 
   // Message Board & Resources
   messageThreads: MessageThread[];
-  addMessageThread: (title: string, content: string, targetUserId?: string, authorId?: string) => void;
-  replyToMessageThread: (threadId: string, text: string, authorId?: string) => void;
+  addMessageThread: (
+    title: string,
+    content: string,
+    targetUserId?: string,
+    authorId?: string,
+    attachedDocuments?: DocumentAttachment[]
+  ) => void;
+  replyToMessageThread: (
+    threadId: string,
+    text: string,
+    authorId?: string,
+    attachedDocuments?: DocumentAttachment[]
+  ) => void;
   directMessages: DirectMessage[];
   sendDirectMessage: (
     recipientId: string,
     text: string,
     senderId?: string,
-    relatedRecord?: { type: 'deal' | 'company' | 'contact' | 'case' | 'call'; id: string; title: string }
+    relatedRecord?: { type: 'deal' | 'company' | 'contact' | 'case' | 'call'; id: string; title: string },
+    attachedDocuments?: DocumentAttachment[]
   ) => void;
   markDirectMessagesAsRead: (otherUserId: string) => void;
   sharedResources: SharedResource[];
-  addSharedResource: (resource: Omit<SharedResource, 'id' | 'createdAt' | 'createdBy'>) => void;
+  addSharedResource: (resource: Omit<SharedResource, 'id' | 'createdAt' | 'createdBy'>) => SharedResource;
+  updateSharedResource: (id: string, updates: Partial<SharedResource>) => void;
+  deleteSharedResource: (id: string) => void;
+  togglePinResource: (id: string) => void;
+  toggleFavoriteResource: (id: string) => void;
+  incrementResourceViews: (id: string) => void;
+  customResourceCategories: string[];
+  addCustomResourceCategory: (category: string) => void;
+  deleteCustomResourceCategory: (category: string) => void;
 
   // Saved Views & Custom Views
   savedViews: SavedCustomView[];
@@ -285,6 +389,14 @@ interface CRMContextType {
   // Audit Logs & Utilities
   auditLogs: AuditLogItem[];
   logAudit: (action: string, details: string) => void;
+
+  // Import & Export History
+  importHistory: ImportHistoryRecord[];
+  exportHistory: ExportHistoryRecord[];
+  addImportHistoryRecord: (record: Omit<ImportHistoryRecord, 'id' | 'timestamp'>) => ImportHistoryRecord;
+  addExportHistoryRecord: (record: Omit<ExportHistoryRecord, 'id' | 'timestamp'>) => ExportHistoryRecord;
+  clearImportHistory: () => void;
+  clearExportHistory: () => void;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -497,6 +609,149 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false);
   const [firstRunChecklistDismissed, setFirstRunChecklistDismissed] = useState<boolean>(false);
 
+  // Meetings Modals State
+  const [createMeetingModalOpen, setCreateMeetingModalOpen] = useState<boolean>(false);
+  const [createMeetingPrefill, setCreateMeetingPrefill] = useState<{
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    companyId?: string;
+    contactId?: string;
+    dealId?: string;
+    caseId?: string;
+    leadId?: string;
+  } | undefined>(undefined);
+  const [meetingDetailModalMeeting, setMeetingDetailModalMeeting] = useState<Event | null>(null);
+  const [editMeetingModalMeeting, setEditMeetingModalMeeting] = useState<Event | null>(null);
+
+  const openCreateMeeting = (prefill?: {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    companyId?: string;
+    contactId?: string;
+    dealId?: string;
+    caseId?: string;
+    leadId?: string;
+  }) => {
+    setCreateMeetingPrefill(prefill);
+    setCreateMeetingModalOpen(true);
+  };
+
+  const closeCreateMeeting = () => {
+    setCreateMeetingModalOpen(false);
+    setCreateMeetingPrefill(undefined);
+  };
+
+  const openMeetingDetail = (meeting: Event) => {
+    setMeetingDetailModalMeeting(meeting);
+  };
+
+  const closeMeetingDetail = () => {
+    setMeetingDetailModalMeeting(null);
+  };
+
+  const openEditMeeting = (meeting: Event) => {
+    setEditMeetingModalMeeting(meeting);
+  };
+
+  const closeEditMeeting = () => {
+    setEditMeetingModalMeeting(null);
+  };
+
+  // In-app Notifications State
+  const [notifications, setNotifications] = useState<CRMNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_notifications');
+      return saved ? JSON.parse(saved) : initialNotifications;
+    } catch {
+      return initialNotifications;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_notifications', JSON.stringify(notifications));
+    } catch (e) {
+      console.warn('Failed to save notifications', e);
+    }
+  }, [notifications]);
+
+  const addNotification = (notifData: Omit<CRMNotification, 'id' | 'createdAt'>) => {
+    const newNotif: CRMNotification = {
+      ...notifData,
+      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      createdAt: new Date().toISOString(),
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+  };
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => (n.userId === currentUserId ? { ...n, read: true } : n)));
+  };
+
+  const clearNotifications = () => {
+    setNotifications((prev) => prev.filter((n) => n.userId !== currentUserId));
+  };
+
+  // Meeting Templates State with LocalStorage persistence
+  const [meetingTemplates, setMeetingTemplates] = useState<MeetingTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_meeting_templates');
+      return saved ? JSON.parse(saved) : initialMeetingTemplates;
+    } catch {
+      return initialMeetingTemplates;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_meeting_templates', JSON.stringify(meetingTemplates));
+    } catch (e) {
+      console.warn('Failed to save meeting templates', e);
+    }
+  }, [meetingTemplates]);
+
+  const saveMeetingTemplate = (
+    templateData: Omit<MeetingTemplate, 'id' | 'createdAt'>,
+    existingId?: string
+  ): MeetingTemplate => {
+    let saved: MeetingTemplate;
+    if (existingId) {
+      saved = {
+        ...templateData,
+        id: existingId,
+        createdAt: new Date().toISOString(),
+      };
+      setMeetingTemplates((prev) => prev.map((t) => (t.id === existingId ? saved : t)));
+    } else {
+      saved = {
+        ...templateData,
+        id: `tmpl-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        createdAt: new Date().toISOString(),
+      };
+      setMeetingTemplates((prev) => [saved, ...prev]);
+    }
+    return saved;
+  };
+
+  const deleteMeetingTemplate = (id: string) => {
+    setMeetingTemplates((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const resetMeetingTemplates = () => {
+    setMeetingTemplates(initialMeetingTemplates);
+    try {
+      localStorage.setItem('crm_meeting_templates', JSON.stringify(initialMeetingTemplates));
+    } catch (e) {
+      console.warn('Failed to reset templates', e);
+    }
+  };
+
   // User-specific Default Companies map (userId -> companyId or null)
   const [userDefaultCompanies, setUserDefaultCompanies] = useState<Record<string, string | null>>(() => {
     try {
@@ -514,7 +769,38 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Entities
   const [organisation, setOrganisation] = useState<Organisation>(initialOrganisation);
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_users_roster_v4');
+      if (saved) {
+        const parsed: User[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length >= initialUsers.length) {
+          return parsed.map((u) => {
+            const initial = initialUsers.find((iu) => iu.id === u.id);
+            return {
+              ...initial,
+              ...u,
+              status: u.status || initial?.status || 'Available',
+              phone: u.phone || initial?.phone || '+1 (555) 019-2831',
+              location: u.location || initial?.location || 'San Francisco, CA (HQ)',
+            };
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse users from localStorage', e);
+    }
+    return initialUsers;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_users_roster_v4', JSON.stringify(users));
+    } catch (e) {
+      console.warn('Failed to save users roster', e);
+    }
+  }, [users]);
+
   const [currentUserId, setCurrentUserId] = useState<string>('user-1'); // Sarah Jenkins (Admin)
   const [regions, setRegions] = useState<Region[]>(initialRegions);
   const [extendedFields, setExtendedFields] = useState<ExtendedField[]>(initialExtendedFields);
@@ -527,7 +813,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const [calls, setCalls] = useState<Call[]>(initialCalls);
   const [callScripts, setCallScripts] = useState<CallScript[]>(initialCallScripts);
-  const [targets, setTargets] = useState<Target[]>(initialTargets);
+  const [targets, setTargets] = useState<Target[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_sales_targets_v3');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse targets from localStorage', e);
+    }
+    return initialTargets;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_sales_targets_v3', JSON.stringify(targets));
+    } catch (e) {
+      console.warn('Failed to save targets to localStorage', e);
+    }
+  }, [targets]);
+
   const [folders, setFolders] = useState<Folder[]>(initialFolders);
   const [documents, setDocuments] = useState<DocumentFile[]>(initialDocuments);
   const [emailAccounts] = useState<EmailAccount[]>(initialEmailAccounts);
@@ -557,8 +863,130 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [directMessages]);
 
-  const [sharedResources, setSharedResources] = useState<SharedResource[]>(initialSharedResources);
+  const [sharedResources, setSharedResources] = useState<SharedResource[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_shared_resources_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return initialSharedResources;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_shared_resources_v2', JSON.stringify(sharedResources));
+    } catch {
+      // ignore
+    }
+  }, [sharedResources]);
+
+  const [customResourceCategories, setCustomResourceCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_custom_resource_categories');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_custom_resource_categories', JSON.stringify(customResourceCategories));
+    } catch {
+      // ignore
+    }
+  }, [customResourceCategories]);
+
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(initialAuditLogs);
+
+  // Import & Export History with LocalStorage Persistence
+  const [importHistory, setImportHistory] = useState<ImportHistoryRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_import_history_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return initialImportHistory;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_import_history_v1', JSON.stringify(importHistory));
+    } catch {
+      // ignore
+    }
+  }, [importHistory]);
+
+  const [exportHistory, setExportHistory] = useState<ExportHistoryRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('crm_export_history_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return initialExportHistory;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('crm_export_history_v1', JSON.stringify(exportHistory));
+    } catch {
+      // ignore
+    }
+  }, [exportHistory]);
+
+  const addImportHistoryRecord = (record: Omit<ImportHistoryRecord, 'id' | 'timestamp'>): ImportHistoryRecord => {
+    const newRecord: ImportHistoryRecord = {
+      ...record,
+      id: `imp-hist-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    setImportHistory((prev) => [newRecord, ...prev]);
+    return newRecord;
+  };
+
+  const addExportHistoryRecord = (record: Omit<ExportHistoryRecord, 'id' | 'timestamp'>): ExportHistoryRecord => {
+    const newRecord: ExportHistoryRecord = {
+      ...record,
+      id: `exp-hist-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    setExportHistory((prev) => [newRecord, ...prev]);
+    return newRecord;
+  };
+
+  const clearImportHistory = () => {
+    setImportHistory([]);
+    try {
+      localStorage.removeItem('crm_import_history_v1');
+    } catch {
+      // ignore
+    }
+  };
+
+  const clearExportHistory = () => {
+    setExportHistory([]);
+    try {
+      localStorage.removeItem('crm_export_history_v1');
+    } catch {
+      // ignore
+    }
+  };
 
   // Saved Views with LocalStorage Persistence
   const [savedViews, setSavedViews] = useState<SavedCustomView[]>(() => {
@@ -624,6 +1052,28 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentUser = useMemo(() => {
     return users.find((u) => u.id === currentUserId) || users[0];
   }, [users, currentUserId]);
+
+  // Synchronize user theme and CRM skin to document root
+  useEffect(() => {
+    if (!currentUser || !currentUser.preferences) return;
+    const theme = currentUser.preferences.theme || 'light';
+    const skin = currentUser.preferences.crmSkin || 'slate';
+    const root = document.documentElement;
+
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else if (theme === 'system') {
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    } else {
+      root.classList.remove('dark');
+    }
+
+    root.setAttribute('data-crm-skin', skin);
+  }, [currentUser?.preferences?.theme, currentUser?.preferences?.crmSkin]);
 
   const defaultCompany = useMemo(() => {
     const userDefaultId = userDefaultCompanies[currentUserId];
@@ -936,8 +1386,21 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateUser = (id: string, updates: Partial<User>) => {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
-    logAudit('USER_UPDATED', `Updated user settings for ID ${id}`);
+    let updatedUserName = id;
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === id) {
+          updatedUserName = updates.name || u.name;
+          return { ...u, ...updates };
+        }
+        return u;
+      })
+    );
+    const changedFields = Object.keys(updates).filter((k) => k !== 'preferences');
+    logAudit(
+      'USER_UPDATED',
+      `Updated profile for ${updatedUserName} (${changedFields.join(', ') || 'details'}) by ${currentUser.name}`
+    );
   };
 
   const toggleUserActive = (id: string) => {
@@ -951,6 +1414,57 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return u;
       })
     );
+  };
+
+  const updateUserPreferences = (userId: string, prefs: Partial<UserPreferences>) => {
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            preferences: {
+              ...u.preferences,
+              ...prefs,
+            },
+          };
+        }
+        return u;
+      })
+    );
+    const target = users.find((u) => u.id === userId);
+    logAudit(
+      'USER_PREFERENCES_UPDATED',
+      `Updated user preferences for ${target?.name || userId}: ${Object.keys(prefs).join(', ')}`
+    );
+  };
+
+  const updateUserWorkSchedule = (userId: string, schedule: UserWorkSchedule) => {
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            preferences: {
+              ...u.preferences,
+              workSchedule: schedule,
+            },
+          };
+        }
+        return u;
+      })
+    );
+    const target = users.find((u) => u.id === userId);
+    logAudit(
+      'WORK_SCHEDULE_UPDATED',
+      `Updated weekly working hours and schedule for ${target?.name || userId}`
+    );
+  };
+
+  const purgeAuditLogs = (retentionDays: number) => {
+    if (retentionDays <= 0) return;
+    const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    setAuditLogs((prev) => prev.filter((log) => log.timestamp >= cutoffDate));
+    logAudit('AUDIT_LOGS_PURGED', `Purged audit history older than ${retentionDays} days per retention policy`);
   };
 
   // Regions & Availability
@@ -995,8 +1509,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userId: string,
     date: string,
     startTime: string,
-    endTime: string
-  ): { available: boolean; status: 'free' | 'busy' | 'unavailable'; reason?: string } => {
+    endTime: string,
+    excludeEventId?: string
+  ): UserAvailabilityResult => {
     const user = users.find((u) => u.id === userId);
     if (!user) return { available: false, status: 'unavailable', reason: 'User not found' };
 
@@ -1013,20 +1528,46 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    // Check normal working hours & schedule if availability check enabled
+    const enforce = organisation.enforceAvailabilityChecking || user.preferences?.checkSchedulesAgainstAvailability !== false;
+    if (enforce && user.preferences) {
+      const workCheck = isWithinWorkingHours(date, startTime, endTime, user);
+      if (!workCheck.withinHours) {
+        return {
+          available: false,
+          status: 'unavailable',
+          reason: workCheck.reason || `${user.name} is outside normal working hours`,
+        };
+      }
+    }
+
     // Check overlapping events
-    const hasConflict = events.some((evt) => {
+    const conflictingEvent = events.find((evt) => {
       if (evt.deletedAt) return false;
+      if (evt.meetingStatus === 'Cancelled') return false;
+      if (excludeEventId && evt.id === excludeEventId) return false;
       if (evt.startDate !== date) return false;
       if (!evt.participantIds.includes(userId) && evt.ownerId !== userId) return false;
       // Overlap condition: start < otherEnd and end > otherStart
       return startTime < evt.endTime && endTime > evt.startTime;
     });
 
-    if (hasConflict) {
-      return { available: false, status: 'busy', reason: `${user.name} has a scheduled meeting at this time` };
+    if (conflictingEvent) {
+      return {
+        available: false,
+        status: 'busy',
+        reason: `Conflict: ${conflictingEvent.title} (${conflictingEvent.startTime} – ${conflictingEvent.endTime})`,
+        conflictingEvent: {
+          id: conflictingEvent.id,
+          title: conflictingEvent.title,
+          startTime: conflictingEvent.startTime,
+          endTime: conflictingEvent.endTime,
+          date: conflictingEvent.startDate,
+        },
+      };
     }
 
-    return { available: true, status: 'free' };
+    return { available: true, status: 'free', reason: 'No conflicting events found.' };
   };
 
   // Extended Fields
@@ -1414,6 +1955,169 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('EVENT_CANCELLED', `Cancelled calendar event ID ${id}`);
   };
 
+  // Meetings System (Create, Update, Reschedule, Cancel, Outcomes)
+  const createMeeting = (meetingData: Omit<Event, 'id' | 'createdAt' | 'updatedAt'>): Event => {
+    const newEvt: Event = {
+      ...meetingData,
+      id: `mtg-${Date.now()}`,
+      isMeeting: true,
+      meetingStatus: meetingData.meetingStatus || 'Scheduled',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setEvents((prev) => [newEvt, ...prev]);
+    logAudit('MEETING_CREATED', `Scheduled meeting "${newEvt.title}" on ${newEvt.startDate} at ${newEvt.startTime}`);
+
+    // Send in-app notifications to all attendees and organizer
+    const organizer = users.find((u) => u.id === newEvt.ownerId) || currentUser;
+    const allParticipants = Array.from(new Set([...newEvt.participantIds, newEvt.ownerId]));
+
+    allParticipants.forEach((userId) => {
+      const isOrganizer = userId === newEvt.ownerId;
+      addNotification({
+        userId,
+        type: 'meeting_invite',
+        title: isOrganizer ? 'Meeting Scheduled' : 'New Meeting Invitation',
+        message: isOrganizer
+          ? `You scheduled "${newEvt.title}" for ${newEvt.startDate} at ${newEvt.startTime}`
+          : `${organizer.name} scheduled "${newEvt.title}" for ${newEvt.startDate} at ${newEvt.startTime}`,
+        meetingId: newEvt.id,
+        read: false,
+      });
+    });
+
+    // Schedule reminder notification if reminderMinutes configured
+    if (newEvt.reminderMinutes) {
+      allParticipants.forEach((userId) => {
+        addNotification({
+          userId,
+          type: 'meeting_reminder',
+          title: `Meeting Reminder: ${newEvt.title}`,
+          message: `Starts in ${newEvt.reminderMinutes} minutes on ${newEvt.startDate} at ${newEvt.startTime}`,
+          meetingId: newEvt.id,
+          read: false,
+        });
+      });
+    }
+
+    return newEvt;
+  };
+
+  const updateMeeting = (meetingId: string, updates: Partial<Event>, notifyAttendees: boolean = true) => {
+    let updatedMeeting: Event | undefined;
+    setEvents((prev) =>
+      prev.map((e) => {
+        if (e.id === meetingId) {
+          updatedMeeting = { ...e, ...updates, updatedAt: new Date().toISOString() };
+          return updatedMeeting;
+        }
+        return e;
+      })
+    );
+
+    if (updatedMeeting && notifyAttendees) {
+      const isRescheduled = updates.startDate !== undefined || updates.startTime !== undefined || updates.endTime !== undefined;
+      const allParticipants = Array.from(new Set([...(updatedMeeting.participantIds || []), updatedMeeting.ownerId]));
+
+      allParticipants.forEach((userId) => {
+        addNotification({
+          userId,
+          type: isRescheduled ? 'meeting_rescheduled' : 'meeting_update',
+          title: isRescheduled ? 'Meeting Rescheduled' : 'Meeting Details Updated',
+          message: isRescheduled
+            ? `"${updatedMeeting?.title}" was moved to ${updatedMeeting?.startDate} at ${updatedMeeting?.startTime}`
+            : `Details for meeting "${updatedMeeting?.title}" have been updated`,
+          meetingId,
+          read: false,
+        });
+      });
+
+      logAudit('MEETING_UPDATED', `Updated meeting "${updatedMeeting.title}"`);
+    }
+  };
+
+  const cancelMeeting = (meetingId: string, reason?: string) => {
+    let targetMeeting: Event | undefined;
+    setEvents((prev) =>
+      prev.map((e) => {
+        if (e.id === meetingId) {
+          const updatedNotes = reason ? `${e.notes ? e.notes + '\n\n' : ''}Cancellation Reason: ${reason}` : e.notes;
+          targetMeeting = {
+            ...e,
+            meetingStatus: 'Cancelled',
+            notes: updatedNotes,
+            updatedAt: new Date().toISOString(),
+          };
+          return targetMeeting;
+        }
+        return e;
+      })
+    );
+
+    if (targetMeeting) {
+      const allParticipants = Array.from(new Set([...(targetMeeting.participantIds || []), targetMeeting.ownerId]));
+      allParticipants.forEach((userId) => {
+        addNotification({
+          userId,
+          type: 'meeting_cancelled',
+          title: 'Meeting Cancelled',
+          message: `"${targetMeeting?.title}" on ${targetMeeting?.startDate} has been cancelled.${reason ? ` Reason: ${reason}` : ''}`,
+          meetingId,
+          read: false,
+        });
+      });
+      logAudit('MEETING_CANCELLED', `Cancelled meeting "${targetMeeting.title}". Reason: ${reason || 'None provided'}`);
+    }
+  };
+
+  const rescheduleMeeting = (meetingId: string, newDate: string, newStartTime: string, newEndTime: string, reason?: string) => {
+    updateMeeting(
+      meetingId,
+      {
+        startDate: newDate,
+        endDate: newDate,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        meetingStatus: 'Rescheduled',
+        notes: reason ? `Rescheduled Note: ${reason}` : undefined,
+      },
+      true
+    );
+  };
+
+  const recordMeetingOutcome = (meetingId: string, outcome: string, notes?: string) => {
+    setEvents((prev) =>
+      prev.map((e) => {
+        if (e.id === meetingId) {
+          return {
+            ...e,
+            meetingOutcome: outcome,
+            outcomeNotes: notes,
+            meetingStatus: 'Completed',
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return e;
+      })
+    );
+    logAudit('MEETING_OUTCOME_RECORDED', `Recorded outcome for meeting ${meetingId}: ${outcome}`);
+  };
+
+  const deleteMeeting = (meetingId: string) => {
+    deleteEvent(meetingId);
+  };
+
+  const duplicateMeeting = (meetingId: string): Event | undefined => {
+    const existing = events.find((e) => e.id === meetingId);
+    if (!existing) return undefined;
+    const { id, createdAt, updatedAt, ...rest } = existing;
+    return createMeeting({
+      ...rest,
+      title: `${rest.title} (Copy)`,
+    });
+  };
+
   // Calls
   const addCall = (callData: Omit<Call, 'id' | 'createdAt' | 'updatedAt'>, createContactIfNew?: boolean) => {
     let linkedContactId = callData.contactId;
@@ -1521,6 +2225,94 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     closeCallConsole();
   };
 
+  const completeCall = (
+    callId: string,
+    outcome: string,
+    notes?: string,
+    followUpDate?: string,
+    nextAction?: string
+  ) => {
+    const existing = calls.find((c) => c.id === callId);
+    updateCall(callId, {
+      outcomeStatus: outcome,
+      outcomeNotes: notes,
+      status: 'Completed',
+      isCompleted: true,
+      followUpDate,
+      nextAction,
+    });
+
+    if (nextAction === 'Follow-up Call' && followUpDate) {
+      addCall({
+        subject: `Follow-up: ${existing?.subject || 'Client Call'}`,
+        callPurpose: `Follow-up call following outcome: ${outcome}`,
+        date: followUpDate,
+        time: '14:00',
+        direction: 'outbound',
+        outcomeStatus: 'Pending',
+        status: 'Pending',
+        priority: existing?.priority || 'Medium',
+        companyId: existing?.companyId,
+        contactId: existing?.contactId,
+        externalName: existing?.externalName,
+        externalPhone: existing?.externalPhone,
+        assignedUserId: existing?.assignedUserId || currentUser.id,
+        notes: `Follow-up required. Prior discussion outcome: ${outcome}.${notes ? ` Notes: ${notes}` : ''}`,
+        scriptId: existing?.scriptId,
+        isScheduled: true,
+        isCompleted: false,
+      });
+    }
+
+    addNotification({
+      userId: existing?.assignedUserId || currentUser.id,
+      type: 'call_reminder',
+      title: 'Call Marked Complete',
+      message: `Call "${existing?.subject}" completed with outcome: ${outcome}`,
+      read: false,
+    });
+
+    logAudit('CALL_COMPLETED', `Completed call "${existing?.subject}" with outcome "${outcome}"`);
+  };
+
+  const rescheduleCall = (callId: string, newDate: string, newTime: string, notes?: string) => {
+    const existing = calls.find((c) => c.id === callId);
+    updateCall(callId, {
+      date: newDate,
+      time: newTime,
+      status: 'Rescheduled',
+      isScheduled: true,
+      notes: notes
+        ? `${existing?.notes ? existing.notes + '\n' : ''}[Rescheduled to ${newDate} ${newTime}]: ${notes}`
+        : existing?.notes,
+    });
+
+    if (existing?.scheduledCalendarEventId) {
+      updateEvent(existing.scheduledCalendarEventId, {
+        startDate: newDate,
+        endDate: newDate,
+        startTime: newTime,
+        endTime: newTime,
+        meetingStatus: 'Rescheduled',
+      });
+    }
+
+    addNotification({
+      userId: existing?.assignedUserId || currentUser.id,
+      type: 'call_reminder',
+      title: 'Call Rescheduled',
+      message: `Call "${existing?.subject}" rescheduled to ${newDate} at ${newTime}`,
+      read: false,
+    });
+
+    logAudit('CALL_RESCHEDULED', `Rescheduled call "${existing?.subject}" to ${newDate} ${newTime}`);
+  };
+
+  const deleteCall = (callId: string) => {
+    updateCall(callId, { deletedAt: new Date().toISOString() });
+    logAudit('CALL_DELETED', `Deleted call ${callId}`);
+  };
+
   const addCallScript = (script: Omit<CallScript, 'id' | 'createdAt'>) => {
     const newScript: CallScript = {
       ...script,
@@ -1540,23 +2332,226 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Targets
-  const addTarget = (targetData: Omit<Target, 'id' | 'createdAt'>) => {
+  const addTarget = (targetData: Omit<Target, 'id' | 'createdAt'>): Target => {
+    const targetId = `tar-${Date.now()}`;
+    const now = new Date().toISOString();
+    const historyItem = {
+      id: `th-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      targetId,
+      timestamp: now,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      action: 'created' as const,
+      details: `Created ${targetData.period || 'target'} quota "${targetData.name}" with goal of ${targetData.goalValue.toLocaleString()} ${targetData.customKpiUnit || ''}.`,
+      newValue: targetData.goalValue,
+    };
+
     const newTarget: Target = {
       ...targetData,
-      id: `tar-${Date.now()}`,
-      createdAt: new Date().toISOString(),
+      id: targetId,
+      createdBy: currentUser.id,
+      createdAt: now,
+      updatedAt: now,
+      history: [historyItem, ...(targetData.history || [])],
     };
-    setTargets((prev) => [...prev, newTarget]);
+
+    setTargets((prev) => [newTarget, ...prev]);
     logAudit('TARGET_CREATED', `Created ${newTarget.period} target "${newTarget.name}" (Goal: ${newTarget.goalValue})`);
+
+    // Dispatch assignment notification to assigned members
+    if (newTarget.notificationsConfig?.onAssignment !== false && newTarget.assignedUserIds?.length) {
+      newTarget.assignedUserIds.forEach((uid) => {
+        addNotification({
+          userId: uid,
+          type: 'task_alert',
+          title: 'New Target Assigned',
+          message: `${currentUser.name} assigned you to target: "${newTarget.name}" (Goal: ${newTarget.goalValue.toLocaleString()})`,
+          read: false,
+        });
+      });
+    }
+
+    return newTarget;
   };
 
-  const updateTarget = (id: string, updates: Partial<Target>) => {
-    setTargets((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+  const updateTarget = (id: string, updates: Partial<Target>, note?: string) => {
+    const existing = targets.find((t) => t.id === id);
+    if (!existing) return;
+
+    const now = new Date().toISOString();
+    const historyEntries: any[] = [];
+
+    if (updates.goalValue !== undefined && updates.goalValue !== existing.goalValue) {
+      historyEntries.push({
+        id: `th-${Date.now()}-val`,
+        targetId: id,
+        timestamp: now,
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        action: 'value_changed',
+        details: `Updated target quota from ${existing.goalValue.toLocaleString()} to ${updates.goalValue.toLocaleString()}.${note ? ` Note: ${note}` : ''}`,
+        oldValue: existing.goalValue,
+        newValue: updates.goalValue,
+      });
+    }
+
+    if (updates.status !== undefined && updates.status !== existing.status) {
+      historyEntries.push({
+        id: `th-${Date.now()}-stat`,
+        targetId: id,
+        timestamp: now,
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        action: 'status_changed',
+        details: `Target status modified from ${existing.status || 'Active'} to ${updates.status}.${note ? ` Note: ${note}` : ''}`,
+        oldValue: existing.status,
+        newValue: updates.status,
+      });
+    }
+
+    if (updates.assignedUserIds !== undefined) {
+      const added = updates.assignedUserIds.filter((u) => !existing.assignedUserIds.includes(u));
+      const removed = existing.assignedUserIds.filter((u) => !updates.assignedUserIds!.includes(u));
+      if (added.length || removed.length) {
+        historyEntries.push({
+          id: `th-${Date.now()}-mem`,
+          targetId: id,
+          timestamp: now,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          action: 'members_changed',
+          details: `Target members updated: +${added.length} added, -${removed.length} removed.`,
+        });
+
+        // Notify newly added members
+        added.forEach((uid) => {
+          addNotification({
+            userId: uid,
+            type: 'task_alert',
+            title: 'Assigned to Target',
+            message: `${currentUser.name} assigned you to target: "${existing.name}"`,
+            read: false,
+          });
+        });
+      }
+    }
+
+    if (historyEntries.length === 0) {
+      historyEntries.push({
+        id: `th-${Date.now()}-gen`,
+        targetId: id,
+        timestamp: now,
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        action: 'updated',
+        details: note ? `Updated target details: ${note}` : `Updated target configurations and attributes.`,
+      });
+    }
+
+    setTargets((prev) =>
+      prev.map((t) => {
+        if (t.id === id) {
+          return {
+            ...t,
+            ...updates,
+            updatedAt: now,
+            history: [...historyEntries, ...(t.history || [])],
+          };
+        }
+        return t;
+      })
+    );
+
+    logAudit('TARGET_UPDATED', `Updated target "${existing.name}" (ID: ${id})`);
+  };
+
+  const overrideTargetProgress = (
+    id: string,
+    manualValue: number,
+    status?: Target['status'],
+    note?: string
+  ) => {
+    const existing = targets.find((t) => t.id === id);
+    if (!existing) return;
+
+    const now = new Date().toISOString();
+    const historyItem = {
+      id: `th-${Date.now()}-ovr`,
+      targetId: id,
+      timestamp: now,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      action: 'achievement_overridden' as const,
+      details: `Manual achievement set to ${manualValue.toLocaleString()} ${existing.customKpiUnit || ''}${status ? ` (Status: ${status})` : ''}.${note ? ` Reason: ${note}` : ''}`,
+      oldValue: existing.manualAchievement,
+      newValue: manualValue,
+    };
+
+    setTargets((prev) =>
+      prev.map((t) => {
+        if (t.id === id) {
+          return {
+            ...t,
+            manualAchievement: manualValue,
+            status: status || t.status,
+            manualOverrideStatus: !!status,
+            updatedAt: now,
+            history: [historyItem, ...(t.history || [])],
+          };
+        }
+        return t;
+      })
+    );
+
+    logAudit('TARGET_PROGRESS_OVERRIDDEN', `Overrode target achievement for "${existing.name}" to ${manualValue}`);
+  };
+
+  const sendTargetReminder = (targetId: string, customMessage?: string) => {
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) return;
+
+    const now = new Date().toISOString();
+    target.assignedUserIds.forEach((uid) => {
+      addNotification({
+        userId: uid,
+        type: 'task_alert',
+        title: `Target Update: ${target.name}`,
+        message: customMessage || `Reminder on target "${target.name}": Goal is ${target.goalValue.toLocaleString()} ending ${target.endDate}. Review your active deals and quotas.`,
+        read: false,
+      });
+    });
+
+    const historyItem = {
+      id: `th-${Date.now()}-rem`,
+      targetId,
+      timestamp: now,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      action: 'notification_sent' as const,
+      details: `Dispatched manual notification and progress reminder to ${target.assignedUserIds.length} assigned colleagues.`,
+    };
+
+    setTargets((prev) =>
+      prev.map((t) => (t.id === targetId ? { ...t, history: [historyItem, ...(t.history || [])] } : t))
+    );
+
+    logAudit('TARGET_REMINDER_SENT', `Sent target notifications for "${target.name}" to ${target.assignedUserIds.length} assignees`);
   };
 
   const deleteTarget = (id: string) => {
+    const existing = targets.find((t) => t.id === id);
     setTargets((prev) => prev.filter((t) => t.id !== id));
-    logAudit('TARGET_DELETED', `Deleted target ID ${id}`);
+    logAudit('TARGET_DELETED', `Deleted target "${existing?.name || id}"`);
+  };
+
+  const resetTargetsToDefault = () => {
+    setTargets(initialTargets);
+    try {
+      localStorage.setItem('crm_sales_targets_v3', JSON.stringify(initialTargets));
+    } catch (e) {
+      console.warn('Failed to reset targets', e);
+    }
+    logAudit('TARGETS_RESET', 'Reset all targets and performance tracking quotas to system defaults');
   };
 
   // Documents & Folders
@@ -1702,7 +2697,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Message Board & Agent-to-Agent Direct Messaging
-  const addMessageThread = (title: string, content: string, targetUserId?: string, authorId?: string) => {
+  const addMessageThread = (
+    title: string,
+    content: string,
+    targetUserId?: string,
+    authorId?: string,
+    attachedDocuments?: DocumentAttachment[]
+  ) => {
     const author = users.find((u) => u.id === (authorId || currentUser.id)) || currentUser;
     const targetUser = targetUserId ? users.find((u) => u.id === targetUserId) : undefined;
 
@@ -1717,20 +2718,34 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       targetUserName: targetUser?.name,
       createdAt: new Date().toISOString(),
       replies: [],
+      attachedDocuments: attachedDocuments && attachedDocuments.length > 0 ? attachedDocuments : undefined,
     };
     setMessageThreads((prev) => [newThread, ...prev]);
-    logAudit('MESSAGE_THREAD_POSTED', `Posted thread "${title}" by agent ${author.name}${targetUser ? ` directed to ${targetUser.name}` : ''}`);
+    logAudit(
+      'MESSAGE_THREAD_POSTED',
+      `Posted thread "${title}" by agent ${author.name}${targetUser ? ` directed to ${targetUser.name}` : ''}${
+        attachedDocuments && attachedDocuments.length > 0
+          ? ` with ${attachedDocuments.length} document attachment(s)`
+          : ''
+      }`
+    );
   };
 
-  const replyToMessageThread = (threadId: string, text: string, authorId?: string) => {
+  const replyToMessageThread = (
+    threadId: string,
+    text: string,
+    authorId?: string,
+    attachedDocuments?: DocumentAttachment[]
+  ) => {
     const author = users.find((u) => u.id === (authorId || currentUser.id)) || currentUser;
-    const newReply = {
+    const newReply: MessageReply = {
       id: `rep-${Date.now()}`,
       authorId: author.id,
       authorName: author.name,
       authorAvatar: author.avatar,
       text,
       createdAt: new Date().toISOString(),
+      attachedDocuments: attachedDocuments && attachedDocuments.length > 0 ? attachedDocuments : undefined,
     };
     setMessageThreads((prev) =>
       prev.map((t) => (t.id === threadId ? { ...t, replies: [...t.replies, newReply] } : t))
@@ -1741,7 +2756,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     recipientId: string,
     text: string,
     senderId?: string,
-    relatedRecord?: { type: 'deal' | 'company' | 'contact' | 'case' | 'call'; id: string; title: string }
+    relatedRecord?: { type: 'deal' | 'company' | 'contact' | 'case' | 'call'; id: string; title: string },
+    attachedDocuments?: DocumentAttachment[]
   ) => {
     const sender = users.find((u) => u.id === (senderId || currentUser.id)) || currentUser;
     const recipient = users.find((u) => u.id === recipientId);
@@ -1759,10 +2775,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
       read: false,
       relatedRecord,
+      attachedDocuments: attachedDocuments && attachedDocuments.length > 0 ? attachedDocuments : undefined,
     };
 
     setDirectMessages((prev) => [...prev, newMsg]);
-    logAudit('DIRECT_MESSAGE_SENT', `Direct message sent from ${sender.name} to agent ${recipient.name}`);
+    logAudit(
+      'DIRECT_MESSAGE_SENT',
+      `Direct message sent from ${sender.name} to agent ${recipient.name}${
+        attachedDocuments && attachedDocuments.length > 0
+          ? ` with document "${attachedDocuments[0].title}"`
+          : ''
+      }`
+    );
   };
 
   const markDirectMessagesAsRead = (otherUserId: string) => {
@@ -1774,15 +2798,87 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Resources
-  const addSharedResource = (resource: Omit<SharedResource, 'id' | 'createdAt' | 'createdBy'>) => {
+  const addSharedResource = (resource: Omit<SharedResource, 'id' | 'createdAt' | 'createdBy'>): SharedResource => {
+    const now = new Date().toISOString();
     const newRes: SharedResource = {
       ...resource,
-      id: `res-${Date.now()}`,
+      id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       createdBy: currentUser.name,
-      createdAt: new Date().toISOString(),
+      createdById: currentUser.id,
+      createdAt: now,
+      lastModifiedBy: currentUser.name,
+      lastModifiedAt: now,
+      viewsCount: 0,
+      isPinned: resource.isPinned || false,
+      isFavorite: resource.isFavorite || false,
     };
     setSharedResources((prev) => [newRes, ...prev]);
-    logAudit('RESOURCE_SHARED', `Shared resource item: "${newRes.title}"`);
+    logAudit('RESOURCE_CREATED', `Created resource: "${newRes.title}" (${newRes.type})`);
+    return newRes;
+  };
+
+  const updateSharedResource = (id: string, updates: Partial<SharedResource>) => {
+    const now = new Date().toISOString();
+    setSharedResources((prev) =>
+      prev.map((r) => {
+        if (r.id === id) {
+          return {
+            ...r,
+            ...updates,
+            lastModifiedBy: currentUser.name,
+            lastModifiedAt: now,
+          };
+        }
+        return r;
+      })
+    );
+    logAudit('RESOURCE_UPDATED', `Updated resource ID ${id}`);
+  };
+
+  const deleteSharedResource = (id: string) => {
+    const target = sharedResources.find((r) => r.id === id);
+    setSharedResources((prev) => prev.filter((r) => r.id !== id));
+    logAudit('RESOURCE_DELETED', `Deleted resource "${target?.title || id}"`);
+  };
+
+  const togglePinResource = (id: string) => {
+    setSharedResources((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, isPinned: !r.isPinned } : r))
+    );
+  };
+
+  const toggleFavoriteResource = (id: string) => {
+    setSharedResources((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, isFavorite: !r.isFavorite } : r))
+    );
+  };
+
+  const incrementResourceViews = (id: string) => {
+    setSharedResources((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              viewsCount: (r.viewsCount || 0) + 1,
+              lastAccessedAt: new Date().toISOString(),
+            }
+          : r
+      )
+    );
+  };
+
+  const addCustomResourceCategory = (category: string) => {
+    const trimmed = category.trim();
+    if (!trimmed) return;
+    if (!defaultResourceCategories.includes(trimmed) && !customResourceCategories.includes(trimmed)) {
+      setCustomResourceCategories((prev) => [...prev, trimmed]);
+      logAudit('RESOURCE_CATEGORY_CREATED', `Added custom resource category: "${trimmed}"`);
+    }
+  };
+
+  const deleteCustomResourceCategory = (category: string) => {
+    setCustomResourceCategories((prev) => prev.filter((c) => c !== category));
+    logAudit('RESOURCE_CATEGORY_DELETED', `Removed custom resource category: "${category}"`);
   };
 
   // Saved Views & Custom Views
@@ -1984,7 +3080,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchUser,
         addUser,
         updateUser,
+        updateUserPreferences,
+        updateUserWorkSchedule,
         toggleUserActive,
+        purgeAuditLogs,
 
         regions,
         addRegion,
@@ -2042,11 +3141,46 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateEvent,
         deleteEvent,
 
+        // Meetings System
+        createMeetingModalOpen,
+        createMeetingPrefill,
+        openCreateMeeting,
+        closeCreateMeeting,
+        meetingDetailModalMeeting,
+        openMeetingDetail,
+        closeMeetingDetail,
+        editMeetingModalMeeting,
+        openEditMeeting,
+        closeEditMeeting,
+        createMeeting,
+        updateMeeting,
+        cancelMeeting,
+        rescheduleMeeting,
+        recordMeetingOutcome,
+        deleteMeeting,
+        duplicateMeeting,
+
+        // Meeting Templates
+        meetingTemplates,
+        saveMeetingTemplate,
+        deleteMeetingTemplate,
+        resetMeetingTemplates,
+
+        // Notifications
+        notifications,
+        addNotification,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
+
         calls,
         filteredCalls,
         callScripts,
         addCall,
         updateCall,
+        completeCall,
+        rescheduleCall,
+        deleteCall,
         completeCallFromConsole,
         addCallScript,
         updateCallScript,
@@ -2056,6 +3190,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addTarget,
         updateTarget,
         deleteTarget,
+        overrideTargetProgress,
+        sendTargetReminder,
+        resetTargetsToDefault,
 
         folders,
         documents,
@@ -2087,6 +3224,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         markDirectMessagesAsRead,
         sharedResources,
         addSharedResource,
+        updateSharedResource,
+        deleteSharedResource,
+        togglePinResource,
+        toggleFavoriteResource,
+        incrementResourceViews,
+        customResourceCategories,
+        addCustomResourceCategory,
+        deleteCustomResourceCategory,
 
         savedViews,
         addSavedView,
@@ -2113,6 +3258,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         auditLogs,
         logAudit,
+
+        importHistory,
+        exportHistory,
+        addImportHistoryRecord,
+        addExportHistoryRecord,
+        clearImportHistory,
+        clearExportHistory,
       }}
     >
       {children}

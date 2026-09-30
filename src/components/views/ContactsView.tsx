@@ -17,6 +17,7 @@ import {
   Trash2,
   Layers,
   X,
+  UploadCloud,
 } from 'lucide-react';
 
 export const ContactsView: React.FC = () => {
@@ -38,6 +39,7 @@ export const ContactsView: React.FC = () => {
     currentUser,
     openCreateCustomView,
     openManageViews,
+    setActiveNav,
   } = useCRM();
 
   // Custom View & Extended Search State
@@ -257,6 +259,17 @@ export const ContactsView: React.FC = () => {
           >
             <Layers size={14} className="text-indigo-600" />
             <span>+ Create Custom View</span>
+          </button>
+
+          {/* Import & Migrate Contacts Button */}
+          <button
+            id="contacts-import-migrate-btn"
+            onClick={() => setActiveNav('import_export')}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-indigo-50 border border-slate-300 hover:border-indigo-300 text-indigo-700 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            title="Import contacts from Outlook, Palm, Act!, GoldMine, Salesforce, or CSV"
+          >
+            <UploadCloud size={14} className="text-indigo-600" />
+            <span>Import & Migrate</span>
           </button>
 
           {/* Quick Create Contact */}

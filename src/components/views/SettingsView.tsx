@@ -8,10 +8,16 @@ import {
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
+  User as UserIcon,
 } from 'lucide-react';
 import { UserRole, User } from '../../types';
+import { ProfilePreferencesView } from './profile/ProfilePreferencesView';
 
-export const SettingsView: React.FC = () => {
+interface SettingsViewProps {
+  initialTab?: 'profile' | 'organisation' | 'users' | 'picklists' | 'demo';
+}
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'profile' }) => {
   const {
     organisation,
     updateOrganisation,
@@ -24,7 +30,9 @@ export const SettingsView: React.FC = () => {
     currentUser,
   } = useCRM();
 
-  const [activeTab, setActiveTab] = useState<'organisation' | 'users' | 'picklists' | 'demo'>('organisation');
+  const [activeTab, setActiveTab] = useState<'profile' | 'organisation' | 'users' | 'picklists' | 'demo'>(
+    initialTab
+  );
 
   // Org form state
   const [orgName, setOrgName] = useState(organisation.name);
@@ -112,10 +120,22 @@ export const SettingsView: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 text-xs font-semibold">
+      <div className="flex items-center gap-2 border-b border-slate-200 text-xs font-semibold overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeTab === 'profile'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <UserIcon size={14} />
+          <span>My Profile & Preferences</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('organisation')}
-          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'organisation'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -127,7 +147,7 @@ export const SettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('users')}
-          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'users'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -139,7 +159,7 @@ export const SettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('picklists')}
-          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'picklists'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -151,7 +171,7 @@ export const SettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('demo')}
-          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`py-2.5 px-4 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'demo'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -161,6 +181,9 @@ export const SettingsView: React.FC = () => {
           <span>Demo Data Management</span>
         </button>
       </div>
+
+      {/* Tab 0: Profile & Preferences */}
+      {activeTab === 'profile' && <ProfilePreferencesView />}
 
       {/* Tab 1: Organisation Profile */}
       {activeTab === 'organisation' && (

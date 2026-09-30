@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useCRM } from '../../context/CRMContext';
+import { interpolateWelcomeText } from '../../utils/profileUtils';
 import {
   Calendar as CalendarIcon,
   PhoneCall,
@@ -39,6 +40,7 @@ export const HomeView: React.FC = () => {
     regions,
     extendedFields,
     fieldSets,
+    openCreateMeeting,
   } = useCRM();
 
   // First-Run Checklist steps (FR-2.4)
@@ -127,7 +129,11 @@ export const HomeView: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            {currentUser.preferences.welcomeText || 'Track your coming week schedule, priority call queue, and sales targets.'}
+            {interpolateWelcomeText(
+              currentUser.welcomeMessage || organisation.teamWelcomeText || currentUser.preferences.welcomeText || 'Track your coming week schedule, priority call queue, and sales targets.',
+              currentUser,
+              organisation
+            )}
           </p>
         </div>
 
@@ -382,12 +388,21 @@ export const HomeView: React.FC = () => {
               <CalendarIcon size={16} className="text-violet-600" />
               <span>Coming Week's Events & Meetings ({weekEvents.length})</span>
             </h3>
-            <button
-              onClick={() => setActiveNav('calendar')}
-              className="text-xs text-indigo-600 hover:underline font-medium"
-            >
-              Full Calendar
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                id="home-create-meeting-btn"
+                onClick={() => openCreateMeeting()}
+                className="text-xs text-indigo-700 hover:text-indigo-900 font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+              >
+                + Create Meeting
+              </button>
+              <button
+                onClick={() => setActiveNav('calendar')}
+                className="text-xs text-slate-500 hover:text-slate-800 font-medium"
+              >
+                Full Calendar →
+              </button>
+            </div>
           </div>
 
           {weekEvents.length === 0 ? (

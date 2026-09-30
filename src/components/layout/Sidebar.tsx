@@ -27,6 +27,7 @@ import {
   ShieldAlert,
   Shield,
   FileQuestion,
+  UserCog,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -62,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     { id: 'deals', label: 'Deals & Pipeline', icon: Briefcase },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, badge: openTasksCount > 0 ? openTasksCount : undefined },
     { id: 'cases', label: 'Cases & Support', icon: LifeBuoy, badge: openCasesCount > 0 ? openCasesCount : undefined },
-    { id: 'calls', label: 'Calls & Queue', icon: PhoneCall, badge: pendingCallsCount > 0 ? pendingCallsCount : undefined },
+    { id: 'calls', label: 'Call List', icon: PhoneCall, badge: pendingCallsCount > 0 ? pendingCallsCount : undefined },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'reports', label: 'Reports', icon: BarChart3 },
     { id: 'targets', label: 'Sales Targets', icon: Target },
@@ -71,7 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     { id: 'forms', label: 'Inbound Forms', icon: FileQuestion },
     { id: 'messages', label: 'Message Board', icon: MessageSquare, badge: unreadMessagesCount > 0 ? unreadMessagesCount : undefined },
     { id: 'resources', label: 'Resources', icon: Bookmark },
-    { id: 'import_export', label: 'Import / Export', icon: DownloadCloud },
+    { id: 'import_export', label: 'Export & Import Data', icon: DownloadCloud },
+    { id: 'profile', label: 'Profile & Preferences', icon: UserCog },
     { id: 'setup', label: 'Setup & Admin', icon: Settings },
   ];
 
