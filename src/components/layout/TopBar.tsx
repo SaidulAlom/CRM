@@ -23,8 +23,10 @@ import {
   Star,
   AlertTriangle,
   Bookmark,
+  Database,
 } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
+import { FirebaseBackendModal } from '../common/FirebaseBackendModal';
 
 export const TopBar: React.FC = () => {
   const {
@@ -51,6 +53,7 @@ export const TopBar: React.FC = () => {
   const [quickCreateMenuOpen, setQuickCreateMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [firebaseModalOpen, setFirebaseModalOpen] = useState(false);
 
   const qcRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
@@ -110,6 +113,19 @@ export const TopBar: React.FC = () => {
 
       {/* Right controls */}
       <div className="flex items-center gap-2 md:gap-3 shrink-0">
+        {/* Firebase Cloud Backend Indicator */}
+        <button
+          id="open-firebase-backend-btn"
+          type="button"
+          onClick={() => setFirebaseModalOpen(true)}
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+          title="Firebase Firestore Cloud Backend (Click to view status, sync, or sign in)"
+        >
+          <Database size={13} className="text-amber-600" />
+          <span className="text-[11px]">Firebase Cloud</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        </button>
+
         {/* Default Company indicator if set (FR-3.3) */}
         {defaultCompany && (
           <div
@@ -531,6 +547,11 @@ export const TopBar: React.FC = () => {
           )}
         </div>
       </div>
+
+      <FirebaseBackendModal
+        isOpen={firebaseModalOpen}
+        onClose={() => setFirebaseModalOpen(false)}
+      />
     </header>
   );
 };

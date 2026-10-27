@@ -9,10 +9,13 @@ import {
   ArrowRight,
   Database,
   Info,
+  Copy,
+  Download,
 } from 'lucide-react';
 import { DelimiterType, ImportSourceApp } from '../../../types';
 import { MIGRATION_PRESETS } from './migrationPresets';
 import { autoDetectDelimiter } from './importUtils';
+import { parseExcelOrDelimitedFile, exportToExcel } from '../../../utils/excelUtils';
 
 interface StepUploadFileProps {
   fileName: string;
@@ -44,15 +47,38 @@ export const StepUploadFile: React.FC<StepUploadFileProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [inputTab, setInputTab] = useState<'upload' | 'paste'>('upload');
+  const [manualText, setManualText] = useState('');
 
   const selectedPreset = MIGRATION_PRESETS.find((p) => p.id === sourceApp) || MIGRATION_PRESETS[0];
 
   const handleFile = (file: File) => {
     setFileError(null);
 
-    // Validate size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      setFileError('File size exceeds the 10 MB maximum upload limit.');
+    // Validate size (max 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      setFileError('File size exceeds the 20 MB maximum upload limit.');
+      return;
+    }
+
+    const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
+
+    if (isExcel) {
+      parseExcelOrDelimitedFile(file)
+        .then((parsed) => {
+          if (!parsed.headers.length) {
+            setFileError('The uploaded Excel worksheet contains no header columns.');
+            return;
+          }
+          const csvLines = [
+            parsed.headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(','),
+            ...parsed.rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')),
+          ];
+          onFileLoaded(file.name, file.size, csvLines.join('\n'), 'comma');
+        })
+        .catch((err) => {
+          setFileError(err.message || 'Failed to read Excel file.');
+        });
       return;
     }
 
@@ -181,7 +207,7 @@ export const StepUploadFile: React.FC<StepUploadFileProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.txt,.tsv,.tab"
+              accept=".xlsx,.xls,.csv,.txt,.tsv,.tab"
               onChange={(e) => {
                 if (e.target.files && e.target.files[0]) {
                   handleFile(e.target.files[0]);
@@ -203,7 +229,7 @@ export const StepUploadFile: React.FC<StepUploadFileProps> = ({
                 {rawText ? 'File loaded ready for mapping' : 'Drop your contact export file here'}
               </p>
               <p className="text-xs text-slate-500 mt-0.5">
-                Supports CSV (comma separated), TSV (tab delimited), or custom delimited files (max 10MB)
+                Supports Microsoft Excel (.xlsx, .xls), CSV (comma separated), or TSV (tab delimited) files (max 20MB)
               </p>
             </div>
 

@@ -17,7 +17,10 @@ import {
   Globe,
   Lock,
   ChevronDown,
+  FileSpreadsheet,
+  Loader2,
 } from 'lucide-react';
+import { exportToExcel } from '../../utils/excelUtils';
 
 export const CompaniesView: React.FC = () => {
   const {
@@ -37,6 +40,7 @@ export const CompaniesView: React.FC = () => {
     currentUser,
     openCreateCustomView,
     openManageViews,
+    logAudit,
   } = useCRM();
 
   // Custom View & Extended Search State
@@ -44,6 +48,7 @@ export const CompaniesView: React.FC = () => {
   const [extendedFilters, setExtendedFilters] = useState<CustomViewFilters>({});
   const [isExtendedSearchOpen, setIsExtendedSearchOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // Auto-load default custom view on initial mount or when user changes
   useEffect(() => {
@@ -186,6 +191,59 @@ export const CompaniesView: React.FC = () => {
     }
   };
 
+  const handleExportCompaniesToExcel = () => {
+    setIsExportingExcel(true);
+    try {
+      const recordsToExport = filteredCompanies.map((c) => {
+        const owner = users.find((u) => u.id === c.ownerId);
+        return {
+          name: c.name,
+          industry: c.industry || '',
+          priority: c.priority || 'Medium',
+          phone: c.phone || '',
+          website: c.website || '',
+          address: c.address || '',
+          ownerName: owner?.name || 'Unassigned',
+          annualRevenue: c.annualRevenue ? `$${c.annualRevenue.toLocaleString()}` : '',
+          employeeCount: c.employeeCount || '',
+          createdAt: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '',
+          description: c.description || '',
+        };
+      });
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `Companies_Export_${dateStr}.xlsx`;
+
+      exportToExcel({
+        filename,
+        sheetName: 'Companies',
+        records: recordsToExport,
+        columns: [
+          { header: 'Company Name', key: 'name', width: 26 },
+          { header: 'Industry', key: 'industry', width: 18 },
+          { header: 'Priority', key: 'priority', width: 12 },
+          { header: 'Phone Number', key: 'phone', width: 18 },
+          { header: 'Website', key: 'website', width: 24 },
+          { header: 'Address', key: 'address', width: 28 },
+          { header: 'Account Owner', key: 'ownerName', width: 20 },
+          { header: 'Annual Revenue', key: 'annualRevenue', width: 16 },
+          { header: 'Employees', key: 'employeeCount', width: 12 },
+          { header: 'Created Date', key: 'createdAt', width: 14 },
+          { header: 'Description', key: 'description', width: 32 },
+        ],
+      });
+
+      logAudit(
+        'EXCEL_DATA_EXPORTED',
+        `Exported ${recordsToExport.length} companies to Excel (${filename}) by ${currentUser.name}`
+      );
+    } catch (err: any) {
+      alert(`Export to Excel failed: ${err.message}`);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   return (
     <div id="companies-view" className="p-4 md:p-8 space-y-5 max-w-7xl mx-auto">
       {/* Header with Title & Action Controls */}
@@ -221,6 +279,22 @@ export const CompaniesView: React.FC = () => {
           >
             <Sliders size={14} />
             <span>{isExtendedSearchOpen ? 'Hide Extended Search' : 'Extended Search'}</span>
+          </button>
+
+          {/* Export to Excel Button */}
+          <button
+            id="companies-export-excel-btn"
+            onClick={handleExportCompaniesToExcel}
+            disabled={isExportingExcel || filteredCompanies.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-semibold shadow-2xs transition-colors disabled:opacity-50"
+            title="Export complete companies dataset matching active filters to Excel (.xlsx)"
+          >
+            {isExportingExcel ? (
+              <Loader2 size={14} className="animate-spin text-emerald-700" />
+            ) : (
+              <FileSpreadsheet size={14} className="text-emerald-700" />
+            )}
+            <span>Export to Excel ({filteredCompanies.length})</span>
           </button>
 
           {/* Create Custom View Button (FR-1 requirement) */}

@@ -18,7 +18,13 @@ import {
   Layers,
   X,
   UploadCloud,
+  FileSpreadsheet,
+  Download,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
+import { exportToExcel } from '../../utils/excelUtils';
+import { ExcelImportModal } from '../common/ExcelImportModal';
 
 export const ContactsView: React.FC = () => {
   const {
@@ -40,6 +46,7 @@ export const ContactsView: React.FC = () => {
     openCreateCustomView,
     openManageViews,
     setActiveNav,
+    logAudit,
   } = useCRM();
 
   // Custom View & Extended Search State
@@ -47,6 +54,11 @@ export const ContactsView: React.FC = () => {
   const [extendedFilters, setExtendedFilters] = useState<CustomViewFilters>({});
   const [isExtendedSearchOpen, setIsExtendedSearchOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
+
+  // Excel Export and Import State
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [assignCampaignModalContact, setAssignCampaignModalContact] = useState<string | null>(null);
@@ -214,8 +226,85 @@ export const ContactsView: React.FC = () => {
     }
   };
 
+  const handleExportToExcel = () => {
+    setIsExportingExcel(true);
+    try {
+      const recordsToExport = filteredContacts.map((c) => {
+        const company = companies.find((cp) => cp.id === c.companyId);
+        const owner = users.find((u) => u.id === c.ownerId);
+        return {
+          firstName: c.firstName,
+          lastName: c.lastName,
+          fullName: `${c.firstName} ${c.lastName}`,
+          email: c.email,
+          phone: c.phone || '',
+          mobile: c.mobile || '',
+          companyName: company?.name || '',
+          jobTitle: c.jobTitle || '',
+          type: c.type || 'lead',
+          mailingAddress: c.mailingAddress || '',
+          ownerName: owner?.name || 'Unassigned',
+          createdAt: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '',
+          description: c.description || '',
+        };
+      });
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `Contacts_Export_${dateStr}.xlsx`;
+
+      exportToExcel({
+        filename,
+        sheetName: 'Contacts',
+        records: recordsToExport,
+        columns: [
+          { header: 'First Name', key: 'firstName', width: 16 },
+          { header: 'Last Name', key: 'lastName', width: 16 },
+          { header: 'Full Name', key: 'fullName', width: 22 },
+          { header: 'Email Address', key: 'email', width: 28 },
+          { header: 'Phone Number', key: 'phone', width: 18 },
+          { header: 'Mobile Number', key: 'mobile', width: 18 },
+          { header: 'Company Name', key: 'companyName', width: 24 },
+          { header: 'Job Title', key: 'jobTitle', width: 24 },
+          { header: 'Contact Type', key: 'type', width: 14 },
+          { header: 'Street Address', key: 'mailingAddress', width: 28 },
+          { header: 'Assigned Owner', key: 'ownerName', width: 20 },
+          { header: 'Created Date', key: 'createdAt', width: 14 },
+          { header: 'Description / Notes', key: 'description', width: 32 },
+        ],
+      });
+
+      setToastMessage(`Exported ${recordsToExport.length} contacts to Excel (${filename})`);
+      setTimeout(() => setToastMessage(null), 5000);
+
+      logAudit(
+        'EXCEL_DATA_EXPORTED',
+        `Exported ${recordsToExport.length} contacts to Excel (${filename}) by ${currentUser.name}`
+      );
+    } catch (err: any) {
+      alert(`Export to Excel failed: ${err.message}`);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   return (
     <div id="contacts-view" className="p-4 md:p-8 space-y-5 max-w-7xl mx-auto">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+            <span className="font-semibold">{toastMessage}</span>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-emerald-600 hover:text-emerald-800 font-bold p-1"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -251,6 +340,33 @@ export const ContactsView: React.FC = () => {
             <span>{isExtendedSearchOpen ? 'Hide Extended Search' : 'Extended Search'}</span>
           </button>
 
+          {/* Export to Excel Button */}
+          <button
+            id="contacts-export-excel-btn"
+            onClick={handleExportToExcel}
+            disabled={isExportingExcel || filteredContacts.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-semibold shadow-2xs transition-colors disabled:opacity-50"
+            title="Export complete contact dataset matching active filters to Excel (.xlsx)"
+          >
+            {isExportingExcel ? (
+              <Loader2 size={14} className="animate-spin text-emerald-700" />
+            ) : (
+              <FileSpreadsheet size={14} className="text-emerald-700" />
+            )}
+            <span>Export to Excel ({filteredContacts.length})</span>
+          </button>
+
+          {/* Import from Excel Button */}
+          <button
+            id="contacts-import-excel-btn"
+            onClick={() => setIsExcelImportOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            title="Upload .xlsx/.xls spreadsheet or paste tabular data with validation"
+          >
+            <Download size={14} className="rotate-180" />
+            <span>Import from Excel</span>
+          </button>
+
           {/* Create Custom View Button */}
           <button
             id="contacts-create-custom-view-btn"
@@ -258,18 +374,7 @@ export const ContactsView: React.FC = () => {
             className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
           >
             <Layers size={14} className="text-indigo-600" />
-            <span>+ Create Custom View</span>
-          </button>
-
-          {/* Import & Migrate Contacts Button */}
-          <button
-            id="contacts-import-migrate-btn"
-            onClick={() => setActiveNav('import_export')}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-indigo-50 border border-slate-300 hover:border-indigo-300 text-indigo-700 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
-            title="Import contacts from Outlook, Palm, Act!, GoldMine, Salesforce, or CSV"
-          >
-            <UploadCloud size={14} className="text-indigo-600" />
-            <span>Import & Migrate</span>
+            <span>+ View</span>
           </button>
 
           {/* Quick Create Contact */}
@@ -567,6 +672,17 @@ export const ContactsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Excel & Manual Import Modal */}
+      <ExcelImportModal
+        isOpen={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        targetModule="contact"
+        onImportComplete={(summary) => {
+          setToastMessage(`Successfully imported ${summary.imported} contacts and updated ${summary.updated} existing records.`);
+          setTimeout(() => setToastMessage(null), 5000);
+        }}
+      />
     </div>
   );
 };

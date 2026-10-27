@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: default-deny all paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isOwner(ownerId) {
+      return isSignedIn() && (request.auth.uid == ownerId || resource.data.ownerId == request.auth.uid);
+    }
+
+    // Connection check document
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId);
+      allow update: if isSignedIn() && (request.auth.uid == userId || incoming().diff(existing()).affectedKeys().hasOnly(['preferences', 'unavailableDates', 'avatar', 'phone', 'name']));
+      allow delete: if false;
+    }
+
+    // Companies / Accounts
+    match /companies/{companyId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(companyId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Contacts & Leads
+    match /contacts/{contactId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(contactId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Deals & Pipeline Opportunities
+    match /deals/{dealId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(dealId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Tasks & Assignments
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(taskId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Events, Meetings, Calls, Appointments
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(eventId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Call logs
+    match /calls/{callId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(callId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Customer Support Cases
+    match /cases/{caseId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(caseId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Audit logs (append-only)
+    match /auditLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(logId);
+      allow update, delete: if false;
+    }
+  }
+}

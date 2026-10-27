@@ -15,11 +15,12 @@ import { useCRM } from '../../../context/CRMContext';
 import { DelimiterType } from '../../../types';
 import { CRM_CONTACT_FIELDS } from './migrationPresets';
 import { getDelimiterCharacter } from './importUtils';
+import { exportToExcel } from '../../../utils/excelUtils';
 
 export const ExportContactsTab: React.FC = () => {
   const { contacts, companies, currentUser, addExportHistoryRecord, logAudit } = useCRM();
 
-  const [exportFormat, setExportFormat] = useState<'csv' | 'tab' | 'custom'>('csv');
+  const [exportFormat, setExportFormat] = useState<'excel' | 'csv' | 'tab' | 'custom'>('excel');
   const [customDelimiter, setCustomDelimiter] = useState(';');
   const [includeHeaders, setIncludeHeaders] = useState(true);
   const [selectedFields, setSelectedFields] = useState<string[]>([
@@ -63,6 +64,62 @@ export const ExportContactsTab: React.FC = () => {
   const handleExport = () => {
     if (selectedFields.length === 0) {
       alert('Please select at least one field to export.');
+      return;
+    }
+
+    if (exportFormat === 'excel') {
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `crm_contacts_export_${dateStr}.xlsx`;
+
+      const columns = selectedFields.map((fKey) => {
+        const fieldDef = CRM_CONTACT_FIELDS.find((f) => f.key === fKey);
+        return {
+          header: fieldDef?.label || fKey,
+          key: fKey,
+          width: Math.max((fieldDef?.label || fKey).length + 4, 16),
+          formatter: (rawVal: any, record: any) => {
+            if (fKey === 'company') {
+              const company = companies.find((cp) => cp.id === record.companyId);
+              return company?.name || '';
+            }
+            return rawVal ?? '';
+          },
+        };
+      });
+
+      const res = exportToExcel({
+        filename,
+        sheetName: 'Contacts',
+        records: targetContacts,
+        columns,
+      });
+
+      addExportHistoryRecord({
+        entity: 'contacts',
+        entityLabel: 'Contacts',
+        filename,
+        format: 'excel',
+        destination: 'download',
+        delimiter: 'comma',
+        encapsulation: 'double',
+        rowSeparator: 'crlf',
+        selectedFields,
+        includeHeaders: true,
+        recordsCount: targetContacts.length,
+        exportedBy: currentUser.id,
+        exportedByName: currentUser.name,
+        status: 'Completed',
+        appliedFiltersSummary: filterType === 'all' ? 'All Contacts' : `Filter: ${filterType}`,
+        fileSize: res.blob.size,
+      });
+
+      logAudit(
+        'EXCEL_DATA_EXPORTED',
+        `Exported ${targetContacts.length} contacts to Excel (${filename}) by ${currentUser.name}`
+      );
+
+      setExportSuccessMessage(`Exported ${targetContacts.length} contacts to ${filename}`);
+      setTimeout(() => setExportSuccessMessage(null), 5000);
       return;
     }
 
@@ -181,11 +238,12 @@ export const ExportContactsTab: React.FC = () => {
               1. File Format & Delimiter
             </label>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
+                { id: 'excel', label: 'Excel (.xlsx)', desc: 'MS Excel' },
                 { id: 'csv', label: 'CSV (Comma)', desc: '.csv' },
                 { id: 'tab', label: 'Tab Delimited', desc: '.tsv' },
-                { id: 'custom', label: 'Custom Delimiter', desc: '.txt' },
+                { id: 'custom', label: 'Custom Delim', desc: '.txt' },
               ].map((fmt) => (
                 <button
                   key={fmt.id}

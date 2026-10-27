@@ -1,0 +1,140 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with roles and calendar preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["Administrator", "Manager", "Team Member"] },
+        "department": { "type": "string", "maxLength": 100 },
+        "avatar": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Client company or account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "industry": { "type": "string", "maxLength": 100 },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "name", "ownerId"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Individual contact person or lead",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "firstName": { "type": "string", "maxLength": 100 },
+        "lastName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "type": { "type": "string", "enum": ["customer", "lead", "partner", "vendor"] },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "firstName", "lastName", "email", "ownerId"]
+    },
+    "Deal": {
+      "title": "Deal",
+      "description": "Sales pipeline opportunity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "value": { "type": "number" },
+        "stage": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["open", "won", "lost"] },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "title", "value", "stage", "status", "ownerId"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Task deadline and assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "deadline": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["Not Started", "In Progress", "Completed", "Waiting"] },
+        "assigneeId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "title", "deadline", "status", "assigneeId"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Calendar event, appointment, or meeting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "startTime": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 30 },
+        "endTime": { "type": "string", "maxLength": 20 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "confirmationStatus": { "type": "string", "enum": ["Confirmed", "Pending", "Not Confirmed", "Cancelled"] },
+        "meetingStatus": { "type": "string", "enum": ["Scheduled", "In Progress", "Completed", "Cancelled", "Rescheduled"] }
+      },
+      "required": ["id", "title", "startDate", "startTime", "ownerId"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Phone call record and script outcome",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 30 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "direction": { "type": "string", "enum": ["inbound", "outbound"] }
+      },
+      "required": ["id", "subject", "date", "ownerId"]
+    },
+    "Case": {
+      "title": "Case",
+      "description": "Customer support case",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
+        "status": { "type": "string", "enum": ["New", "In Progress", "Escalated", "Resolved", "Closed"] },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "title", "priority", "status", "ownerId"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Audit record for CRM actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 100 },
+        "details": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "userId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "action", "details", "timestamp", "userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profiles" },
+    "/companies/{companyId}": { "schema": "Company", "description": "CRM companies and client accounts" },
+    "/contacts/{contactId}": { "schema": "Contact", "description": "CRM contacts and leads" },
+    "/deals/{dealId}": { "schema": "Deal", "description": "Sales opportunities and deals" },
+    "/tasks/{taskId}": { "schema": "Task", "description": "Tasks and deadlines" },
+    "/events/{eventId}": { "schema": "Event", "description": "Calendar events and meetings" },
+    "/calls/{callId}": { "schema": "Call", "description": "Phone call logs" },
+    "/cases/{caseId}": { "schema": "Case", "description": "Support cases" },
+    "/auditLogs/{logId}": { "schema": "AuditLog", "description": "System audit history" }
+  }
+}

@@ -21,6 +21,7 @@ import { ExportHistoryTab } from './exportData/ExportHistoryTab';
 import { ImportWizardTab } from './importExport/ImportWizardTab';
 import { MigrationGuidesTab } from './importExport/MigrationGuidesTab';
 import { ImportHistoryTab } from './importExport/ImportHistoryTab';
+import { ExcelImportModal } from '../common/ExcelImportModal';
 
 export const ImportExportView: React.FC = () => {
   const { currentUser, switchUser, users } = useCRM();
@@ -28,6 +29,7 @@ export const ImportExportView: React.FC = () => {
   // Active top-level subtab (default to 'export' as requested for Export Data)
   const [activeTab, setActiveTab] = useState<'export' | 'import' | 'guides' | 'export_history' | 'import_history'>('export');
   const [selectedPresetForImport, setSelectedPresetForImport] = useState<ImportSourceApp>('generic_csv');
+  const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
 
   // RBAC permission check: standard users can view, managers & admins can perform import & export
   const canImportExport = currentUser.role === 'admin' || currentUser.role === 'manager';
@@ -55,32 +57,46 @@ export const ImportExportView: React.FC = () => {
           </p>
         </div>
 
-        {/* Security & Role Testing Indicator */}
-        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs text-xs">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                canImportExport ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-            />
-            <span className="text-slate-500">Active Role:</span>
-            <span className="font-bold text-slate-900 capitalize">{currentUser.role}</span>
-          </div>
-
-          <div className="h-4 w-px bg-slate-200" />
-
-          {/* Quick User Switcher to preview admin vs manager vs standard permissions */}
-          <select
-            value={currentUser.id}
-            onChange={(e) => switchUser(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-hidden"
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Excel & Manual Import Modal Trigger */}
+          <button
+            id="open-excel-import-modal-btn"
+            type="button"
+            onClick={() => setIsExcelImportModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            title="Upload .xlsx/.xls spreadsheet or paste tabular data"
           >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.role})
-              </option>
-            ))}
-          </select>
+            <FileSpreadsheet size={15} />
+            <span>Excel & Manual Import</span>
+          </button>
+
+          {/* Security & Role Testing Indicator */}
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs text-xs">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  canImportExport ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              />
+              <span className="text-slate-500">Active Role:</span>
+              <span className="font-bold text-slate-900 capitalize">{currentUser.role}</span>
+            </div>
+
+            <div className="h-4 w-px bg-slate-200" />
+
+            {/* Quick User Switcher to preview admin vs manager vs standard permissions */}
+            <select
+              value={currentUser.id}
+              onChange={(e) => switchUser(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-700 focus:outline-hidden"
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.role})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -186,6 +202,13 @@ export const ImportExportView: React.FC = () => {
       {activeTab === 'export_history' && <ExportHistoryTab />}
 
       {activeTab === 'import_history' && <ImportHistoryTab />}
+
+      {/* Excel & Manual Import Modal */}
+      <ExcelImportModal
+        isOpen={isExcelImportModalOpen}
+        onClose={() => setIsExcelImportModalOpen(false)}
+        targetModule="contact"
+      />
     </div>
   );
 };

@@ -113,7 +113,14 @@ export const StepExportProcessing: React.FC<StepExportProcessingProps> = ({
           );
 
           setGeneratedOutput(output);
-          const blobInfo = createExportBlob(output, destination, delimiterType);
+          const blobInfo = createExportBlob(
+            output,
+            destination,
+            delimiterType,
+            filteredRecords,
+            selectedFields,
+            context
+          );
           setDownloadBlob(blobInfo);
 
           setProgress(100);

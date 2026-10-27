@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import {
   ExportDelimiterType,
   ExportEncapsulationType,
@@ -122,14 +123,56 @@ export function generateExportOutput(
 }
 
 /**
- * Creates a downloadable Blob with proper UTF-8 BOM encoding for Microsoft Excel compatibility.
+ * Creates a downloadable Blob with proper UTF-8 BOM encoding or XLSX binary for Microsoft Excel.
  */
 export function createExportBlob(
   content: string,
   destination: ExportDestination,
-  delimiterType: ExportDelimiterType
+  delimiterType: ExportDelimiterType,
+  records?: any[],
+  fields?: ExportFieldDefinition[],
+  context?: { companies: any[]; contacts: any[]; users: any[] }
 ): { blob: Blob; mimeType: string; extension: string } {
-  // Add UTF-8 Byte Order Mark (BOM) so Excel opens UTF-8 files automatically without broken characters
+  // If destination is Excel and records are provided, generate true .xlsx binary workbook
+  if (destination === 'excel' && records && fields && fields.length > 0) {
+    const headers = fields.map((f) => f.label);
+    const dataRows = records.map((record) => {
+      return fields.map((field) => {
+        try {
+          const val = field.accessor(record, context || { companies: [], contacts: [], users: [] });
+          return val === null || val === undefined ? '' : val;
+        } catch {
+          return '';
+        }
+      });
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    const colWidths = fields.map((f, i) => {
+      let maxLen = f.label.length;
+      dataRows.forEach((r) => {
+        const str = String(r[i] ?? '');
+        if (str.length > maxLen) maxLen = Math.min(str.length, 50);
+      });
+      return { wch: Math.max(maxLen + 3, 12) };
+    });
+    worksheet['!cols'] = colWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    return {
+      blob,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      extension: 'xlsx',
+    };
+  }
+
+  // Add UTF-8 Byte Order Mark (BOM) so Excel opens UTF-8 CSVs automatically without broken characters
   const bomPrefix = '\uFEFF';
   const fullContent = bomPrefix + content;
 
@@ -137,8 +180,8 @@ export function createExportBlob(
   let extension = 'csv';
 
   if (destination === 'excel') {
-    mimeType = 'application/vnd.ms-excel;charset=utf-8;';
-    extension = 'csv'; // .csv with BOM opens directly in Excel, or can use .xls
+    mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    extension = 'xlsx';
   } else if (delimiterType === 'tab') {
     mimeType = 'text/tab-separated-values;charset=utf-8;';
     extension = 'tsv';
