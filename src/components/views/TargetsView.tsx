@@ -10,10 +10,17 @@ import {
 } from './targets/targetUtils';
 import { CreateEditTargetModal } from './targets/CreateEditTargetModal';
 import { TargetDetailModal } from './targets/TargetDetailModal';
+import { HowToAchieveTargetsModal } from './targets/HowToAchieveTargetsModal';
+import { TargetMissionModal } from './targets/TargetMissionModal';
+import { GoalTaskAssignmentModal } from './goals/GoalTaskAssignmentModal';
+import { GoalAchievementBlockerModal } from './goals/GoalAchievementBlockerModal';
+import { TaskReviewModal } from './tasks/TaskReviewModal';
+import { TaskEvidenceSubmissionModal } from './tasks/TaskEvidenceSubmissionModal';
 import { TeamPerformanceTab } from './targets/TeamPerformanceTab';
 import { IndividualPerformanceTab } from './targets/IndividualPerformanceTab';
 import { TargetReportsTab } from './targets/TargetReportsTab';
 import { TargetAuditHistoryTab } from './targets/TargetAuditHistoryTab';
+import confetti from 'canvas-confetti';
 import {
   Target as TargetIcon,
   Plus,
@@ -38,6 +45,14 @@ import {
   Shield,
   Eye,
   FileText,
+  Compass,
+  Swords,
+  Sparkles,
+  Trophy,
+  ShieldCheck,
+  ShieldAlert,
+  CheckSquare,
+  XCircle,
 } from 'lucide-react';
 
 export const TargetsView: React.FC = () => {
@@ -47,6 +62,7 @@ export const TargetsView: React.FC = () => {
     cases,
     contacts,
     users,
+    tasks,
     currentUser,
     addTarget,
     updateTarget,
@@ -54,6 +70,9 @@ export const TargetsView: React.FC = () => {
     overrideTargetProgress,
     sendTargetReminder,
     resetTargetsToDefault,
+    moveDealStage,
+    setActiveNav,
+    addTask,
   } = useCRM();
 
   // Role permissions
@@ -66,6 +85,13 @@ export const TargetsView: React.FC = () => {
 
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showGoalTaskModal, setShowGoalTaskModal] = useState(false);
+  const [showHowToAchieveModal, setShowHowToAchieveModal] = useState(false);
+  const [showTargetMissionModal, setShowTargetMissionModal] = useState(false);
+  const [blockerModalCalc, setBlockerModalCalc] = useState<TargetCalculation | null>(null);
+  const [reviewModalTask, setReviewModalTask] = useState<any | null>(null);
+  const [submissionModalTask, setSubmissionModalTask] = useState<any | null>(null);
+
   const [editingTarget, setEditingTarget] = useState<Target | null>(null);
   const [selectedCalculation, setSelectedCalculation] = useState<TargetCalculation | null>(null);
   const [selectedIndividualUser, setSelectedIndividualUser] = useState<User>(currentUser);
@@ -74,14 +100,16 @@ export const TargetsView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterPriority, setFilterPriority] = useState<string>('all');
   const [filterPeriod, setFilterPeriod] = useState<string>('all');
   const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterUser, setFilterUser] = useState<string>('all');
   const [onlyMyTargets, setOnlyMyTargets] = useState<boolean>(!isManagerOrAdmin);
 
-  // Auto-calculate live progress for all targets using real CRM records
+  // Auto-calculate live progress for all targets using real CRM records and linked tasks
   const targetCalculations = useMemo(() => {
-    return targets.map((t) => calculateTargetProgress(t, deals, cases, contacts, users, '2026-09-28'));
-  }, [targets, deals, cases, contacts, users]);
+    return targets.map((t) => calculateTargetProgress(t, deals, cases, contacts, users, '2026-09-28', tasks));
+  }, [targets, deals, cases, contacts, users, tasks]);
 
   // Keep selected calculation in sync if targets change
   const currentSelectedCalculation = useMemo(() => {
@@ -94,8 +122,10 @@ export const TargetsView: React.FC = () => {
     return targetCalculations.filter((c) => {
       const t = c.target;
       if (onlyMyTargets && !t.assignedUserIds.includes(currentUser.id)) return false;
+      if (filterUser !== 'all' && !t.assignedUserIds.includes(filterUser)) return false;
       if (filterType !== 'all' && t.type !== filterType) return false;
       if (filterStatus !== 'all' && c.computedStatus !== filterStatus) return false;
+      if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
       if (filterPeriod !== 'all' && t.period !== filterPeriod) return false;
       if (filterDepartment !== 'all' && t.department !== filterDepartment) return false;
       if (searchQuery.trim()) {
@@ -109,7 +139,19 @@ export const TargetsView: React.FC = () => {
       }
       return true;
     });
-  }, [targetCalculations, onlyMyTargets, filterType, filterStatus, filterPeriod, filterDepartment, searchQuery, currentUser.id, users]);
+  }, [
+    targetCalculations,
+    onlyMyTargets,
+    filterUser,
+    filterType,
+    filterStatus,
+    filterPriority,
+    filterPeriod,
+    filterDepartment,
+    searchQuery,
+    currentUser.id,
+    users,
+  ]);
 
   // High-level KPI Rollups across all active targets
   const kpiSummary = useMemo(() => {
@@ -141,12 +183,30 @@ export const TargetsView: React.FC = () => {
     const averageAttainment =
       targetCalculations.length > 0 ? Math.round(totalAttainmentSum / targetCalculations.length) : 0;
 
+    const totalGoals = targetCalculations.length;
+    const achievedGoals = targetCalculations.filter(
+      (c) => c.computedStatus === 'Achieved' || c.computedStatus === 'Completed'
+    ).length;
+    const inProgressGoals = targetCalculations.filter(
+      (c) =>
+        c.computedStatus === 'On Track' ||
+        c.computedStatus === 'At Risk' ||
+        c.computedStatus === 'Active' ||
+        c.computedStatus === 'Under Review'
+    ).length;
+    const overdueGoals = targetCalculations.filter((c) => c.computedStatus === 'Expired').length;
+    const blockedGoals = targetCalculations.filter((c) => c.computedStatus === 'Blocked').length;
+    const pendingReviewsCount = targetCalculations.reduce((sum, c) => sum + c.pendingReviewTasksCount, 0);
+
     return {
+      totalGoals,
+      achievedGoals,
+      inProgressGoals,
+      overdueGoals,
+      blockedGoals,
+      pendingReviewsCount,
       totalTargets: targetCalculations.length,
-      activeTargets: targetCalculations.filter((c) => c.computedStatus !== 'Completed' && c.computedStatus !== 'Expired').length,
-      completedTargets: targetCalculations.filter((c) => c.computedStatus === 'Completed').length,
-      onTrackTargets: targetCalculations.filter((c) => c.computedStatus === 'On Track').length,
-      atRiskTargets: targetCalculations.filter((c) => c.computedStatus === 'At Risk').length,
+      activeTargets: inProgressGoals,
       totalRevenueGoal,
       totalRevenueAchieved,
       revenueAttainmentPercent: totalRevenueGoal > 0 ? Math.round((totalRevenueAchieved / totalRevenueGoal) * 100) : 0,
@@ -181,8 +241,13 @@ export const TargetsView: React.FC = () => {
   // Status Badge Helper
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'Achieved':
       case 'Completed':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      case 'Under Review':
+        return 'bg-amber-100 text-amber-800 border-amber-300';
+      case 'Blocked':
+        return 'bg-rose-100 text-rose-800 border-rose-300';
       case 'On Track':
         return 'bg-indigo-100 text-indigo-800 border-indigo-200';
       case 'At Risk':
@@ -211,7 +276,7 @@ export const TargetsView: React.FC = () => {
       case 'new_customers':
         return <Users size={13} className="text-amber-600" />;
       default:
-        return <TargetIcon size={13} className="text-indigo-600" />;
+        return <Award size={13} className="text-indigo-600" />;
     }
   };
 
@@ -225,41 +290,55 @@ export const TargetsView: React.FC = () => {
               <TargetIcon size={18} />
             </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Sales Targets & Performance Tracking
+              Goal Achievement & Task Assignment System
             </h1>
             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live CRM Calculation</span>
+              <span>Verified Rule Enforcement</span>
             </span>
             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 capitalize">
               Role: {currentUser.role} ({currentUser.name})
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-            Define, assign, monitor, and evaluate measurable targets for sales and customer-service teams with automatic progress tracking calculated from won deals, customer cases, and converted clients.
+            Goals are achieved only when linked tasks are assigned, submitted with evidence, and verified by managers. Goals cannot be marked achieved by a button click alone.
           </p>
         </div>
 
         {/* Global Action Buttons */}
-        <div className="flex items-center gap-2">
-          {isManagerOrAdmin ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          {isManagerOrAdmin && (
             <button
-              id="create-target-btn"
-              onClick={() => {
-                setEditingTarget(null);
-                setShowCreateModal(true);
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              id="assign-goal-tasks-btn"
+              onClick={() => setShowGoalTaskModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+              title="Create goal and assign actionable tasks with verification"
             >
-              <Plus size={15} />
-              <span>Create Target</span>
+              <TargetIcon size={15} />
+              <span>Assign Goal Tasks</span>
             </button>
-          ) : (
-            <div className="text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5">
-              <Shield size={14} className="text-slate-400" />
-              <span>Standard Rep (Quota Viewer)</span>
-            </div>
           )}
+
+          <button
+            id="launch-target-mission-btn"
+            onClick={() => setShowTargetMissionModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+            title="Launch an interactive gamified quest to achieve target goals"
+          >
+            <Swords size={15} />
+            <span>Target Quests</span>
+            <Sparkles size={12} className="text-amber-300" />
+          </button>
+
+          <button
+            id="how-to-achieve-btn"
+            onClick={() => setShowHowToAchieveModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
+            title="Strategic guidance & interactive quota calculator"
+          >
+            <Compass size={15} className="text-indigo-600" />
+            <span>How to Achieve</span>
+          </button>
 
           <button
             onClick={() => {
@@ -275,94 +354,78 @@ export const TargetsView: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Metric Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {/* Total Active Targets */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-1">
+      {/* KPI Metric Summary Strip: Total Goals, Achieved Goals, Goals In Progress, Overdue Goals, Blocked Goals, Pending Reviews */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        {/* Total Goals */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Active Targets
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Goals</span>
             <div className="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <TargetIcon size={14} />
+              <TargetIcon size={13} />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-900">{kpiSummary.activeTargets}</div>
-          <div className="text-[10px] text-slate-500">
-            {kpiSummary.completedTargets} completed · {kpiSummary.totalTargets} total
-          </div>
+          <div className="text-xl font-bold text-slate-900">{kpiSummary.totalGoals}</div>
+          <div className="text-[10px] text-slate-500">Configured quotas</div>
         </div>
 
-        {/* Total Revenue Attainment */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-1">
+        {/* Achieved Goals */}
+        <div className="bg-white rounded-2xl border border-emerald-200 p-3.5 shadow-2xs space-y-1 bg-gradient-to-br from-white to-emerald-50/40">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Revenue Achieved
-            </span>
-            <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Achieved Goals</span>
+            <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <Trophy size={13} />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-900">
-            ${kpiSummary.totalRevenueAchieved.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-emerald-600 font-semibold">
-            {kpiSummary.revenueAttainmentPercent}% of ${kpiSummary.totalRevenueGoal.toLocaleString()} quota
-          </div>
+          <div className="text-xl font-bold text-emerald-700">{kpiSummary.achievedGoals}</div>
+          <div className="text-[10px] text-emerald-600 font-semibold">100% verified & completed</div>
         </div>
 
-        {/* Units Sold Quota */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-1">
+        {/* Goals In Progress */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Units Sold
-            </span>
-            <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Package size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">In Progress</span>
+            <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <TrendingUp size={13} />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-900">
-            {kpiSummary.totalUnitsSold} Sold
-          </div>
-          <div className="text-[10px] text-slate-500">
-            Goal: {kpiSummary.totalUnitsGoal} unit packages
-          </div>
+          <div className="text-xl font-bold text-blue-700">{kpiSummary.inProgressGoals}</div>
+          <div className="text-[10px] text-slate-500">Active agent execution</div>
         </div>
 
-        {/* Customer Support Cases */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-1">
+        {/* Overdue Goals */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Support Cases
-            </span>
-            <div className="w-6 h-6 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
-              <LifeBuoy size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Overdue Goals</span>
+            <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+              <Calendar size={13} />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-900">
-            {kpiSummary.totalCasesResolved} Cases
-          </div>
-          <div className="text-[10px] text-slate-500">
-            Goal: {kpiSummary.totalCasesGoal} tickets resolved
-          </div>
+          <div className="text-xl font-bold text-rose-700">{kpiSummary.overdueGoals}</div>
+          <div className="text-[10px] text-rose-600 font-semibold">Past target cutoff date</div>
         </div>
 
-        {/* Team Attainment Rate */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-1">
+        {/* Blocked Goals */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Pacing Attainment
-            </span>
-            <div className="w-6 h-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Award size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Blocked Goals</span>
+            <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+              <ShieldAlert size={13} />
             </div>
           </div>
-          <div className="text-xl font-bold text-indigo-600">
-            {kpiSummary.averageAttainment}%
+          <div className="text-xl font-bold text-rose-700">{kpiSummary.blockedGoals}</div>
+          <div className="text-[10px] text-slate-500">Impediment reported</div>
+        </div>
+
+        {/* Pending Reviews */}
+        <div className="bg-white rounded-2xl border border-amber-200 p-3.5 shadow-2xs space-y-1 bg-gradient-to-br from-white to-amber-50/40">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Pending Reviews</span>
+            <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+              <Clock size={13} />
+            </div>
           </div>
-          <div className="text-[10px] text-slate-500">
-            {kpiSummary.onTrackTargets} On Track · {kpiSummary.atRiskTargets} At Risk
-          </div>
+          <div className="text-xl font-bold text-amber-800">{kpiSummary.pendingReviewsCount}</div>
+          <div className="text-[10px] text-amber-700 font-semibold">Awaiting manager sign-off</div>
         </div>
       </div>
 
@@ -378,7 +441,7 @@ export const TargetsView: React.FC = () => {
             }`}
           >
             <TargetIcon size={14} />
-            <span>Targets Dashboard</span>
+            <span>Goals Dashboard</span>
             <span
               className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                 activeTab === 'dashboard' ? 'bg-indigo-800 text-white' : 'bg-slate-200 text-slate-700'
@@ -397,7 +460,7 @@ export const TargetsView: React.FC = () => {
             }`}
           >
             <Users size={14} />
-            <span>Team Performance</span>
+            <span>Team Attainment</span>
           </button>
 
           <button
@@ -409,7 +472,7 @@ export const TargetsView: React.FC = () => {
             }`}
           >
             <Award size={14} />
-            <span>Individual Performance</span>
+            <span>Agent Performance</span>
           </button>
 
           <button
@@ -420,8 +483,8 @@ export const TargetsView: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <TrendingUp size={14} />
-            <span>Target Reports & Analytics</span>
+            <FileSpreadsheet size={14} />
+            <span>Attainment Reports</span>
           </button>
 
           <button
@@ -432,27 +495,25 @@ export const TargetsView: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Clock size={14} />
-            <span>Target History & Audit</span>
+            <ShieldCheck size={14} />
+            <span>Audit & Verification Logs</span>
           </button>
         </div>
 
         {isAdmin && (
           <button
             onClick={() => {
-              if (confirm('Reset targets to factory default seed data?')) {
-                resetTargetsToDefault();
-              }
+              if (confirm('Reset all sales targets to initial seed data?')) resetTargetsToDefault();
             }}
-            title="Reset Targets to Factory Defaults"
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+            title="Reset targets to default"
+            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors ml-2"
           >
             <RefreshCw size={14} />
           </button>
         )}
       </div>
 
-      {/* TAB 1: TARGETS DASHBOARD */}
+      {/* TAB 1: GOALS DASHBOARD */}
       {activeTab === 'dashboard' && (
         <div className="space-y-6">
           {/* Dashboard Filter Strip */}
@@ -464,13 +525,57 @@ export const TargetsView: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search targets or assignees..."
+                placeholder="Search goals, criteria, or assignees..."
                 className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
             {/* Dropdown Filters */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* Agent Filter */}
+              <select
+                value={filterUser}
+                onChange={(e) => setFilterUser(e.target.value)}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium"
+              >
+                <option value="all">All Agents</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
+                  </option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium"
+              >
+                <option value="all">All Statuses</option>
+                <option value="Achieved">Achieved 🏆</option>
+                <option value="Under Review">Under Review ⏳</option>
+                <option value="On Track">On Track 🟢</option>
+                <option value="At Risk">At Risk 🟠</option>
+                <option value="Blocked">Blocked ⚠️</option>
+                <option value="Upcoming">Upcoming 🔵</option>
+                <option value="Expired">Expired 🔴</option>
+              </select>
+
+              {/* Priority Filter */}
+              <select
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value)}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium"
+              >
+                <option value="all">All Priorities</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+
+              {/* Type Filter */}
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
@@ -485,20 +590,7 @@ export const TargetsView: React.FC = () => {
                 <option value="custom_kpi">Custom KPI</option>
               </select>
 
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs"
-              >
-                <option value="all">All Statuses</option>
-                <option value="On Track">On Track</option>
-                <option value="At Risk">At Risk</option>
-                <option value="Completed">Completed</option>
-                <option value="Upcoming">Upcoming</option>
-                <option value="Active">Active</option>
-                <option value="Expired">Expired</option>
-              </select>
-
+              {/* Period Filter */}
               <select
                 value={filterPeriod}
                 onChange={(e) => setFilterPeriod(e.target.value)}
@@ -511,49 +603,66 @@ export const TargetsView: React.FC = () => {
               </select>
 
               {/* Only My Targets Toggle */}
-              <label className="flex items-center gap-1.5 font-semibold text-slate-700 cursor-pointer ml-2 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+              <label className="flex items-center gap-1.5 font-semibold text-slate-700 cursor-pointer ml-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
                 <input
                   type="checkbox"
                   checked={onlyMyTargets}
                   onChange={(e) => setOnlyMyTargets(e.target.checked)}
                   className="rounded text-indigo-600 focus:ring-indigo-500"
                 />
-                <span>My Assigned Quotas</span>
+                <span>My Assigned Goals</span>
               </label>
             </div>
           </div>
 
-          {/* Target Cards Grid */}
+          {/* Goal Cards Grid */}
           {filteredCalculations.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
               <TargetIcon className="w-10 h-10 text-slate-300 mx-auto" />
-              <div className="font-bold text-slate-700 text-sm">No targets matched your filters</div>
+              <div className="font-bold text-slate-700 text-sm">No goals matched your filters</div>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Try adjusting your search criteria, toggling off 'My Assigned Quotas', or creating a new measurable sales target.
+                Try adjusting your search criteria, toggling off 'My Assigned Goals', or creating a new measurable goal.
               </p>
               {isManagerOrAdmin && (
                 <button
-                  onClick={() => {
-                    setEditingTarget(null);
-                    setShowCreateModal(true);
-                  }}
+                  onClick={() => setShowGoalTaskModal(true)}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold"
                 >
-                  Create New Target
+                  Create Goal & Assign Tasks
                 </button>
               )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredCalculations.map((calc) => {
-                const { target: t, actual, goal, remaining, percent, computedStatus, memberContributions } = calc;
+                const {
+                  target: t,
+                  actual,
+                  goal,
+                  remaining,
+                  percent,
+                  computedStatus,
+                  linkedTasks,
+                  completedMandatoryTasksCount,
+                  mandatoryTasksCount,
+                  pendingReviewTasksCount,
+                  blockedTasksCount,
+                  isTargetAchieved,
+                } = calc;
                 const assignees = users.filter((u) => t.assignedUserIds.includes(u.id));
 
                 return (
                   <div
                     key={t.id}
-                    onClick={() => setSelectedCalculation(calc)}
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4 text-xs hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                    className={`bg-white rounded-2xl border p-5 shadow-2xs space-y-4 text-xs transition-all flex flex-col justify-between ${
+                      isTargetAchieved
+                        ? 'border-emerald-300 hover:border-emerald-500 hover:shadow-emerald-500/10'
+                        : computedStatus === 'Blocked'
+                        ? 'border-rose-300 hover:border-rose-500'
+                        : computedStatus === 'Under Review'
+                        ? 'border-amber-300 hover:border-amber-500'
+                        : 'border-slate-200 hover:border-indigo-400'
+                    }`}
                   >
                     <div className="space-y-3">
                       {/* Card Header */}
@@ -564,11 +673,22 @@ export const TargetsView: React.FC = () => {
                               {getTypeIcon(t.type)}
                               <span>{t.type.replace('_', ' ')}</span>
                             </span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusBadge(computedStatus)}`}>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 ${getStatusBadge(computedStatus)}`}>
+                              {isTargetAchieved && <Trophy size={11} />}
+                              {computedStatus === 'Under Review' && <Clock size={11} />}
+                              {computedStatus === 'Blocked' && <AlertTriangle size={11} />}
                               {computedStatus}
                             </span>
+                            {t.priority && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                {t.priority}
+                              </span>
+                            )}
                           </div>
-                          <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 line-clamp-1">
+                          <h3
+                            onClick={() => setSelectedCalculation(calc)}
+                            className="font-bold text-sm text-slate-900 hover:text-indigo-600 line-clamp-1 cursor-pointer"
+                          >
                             {t.name}
                           </h3>
                         </div>
@@ -587,7 +707,7 @@ export const TargetsView: React.FC = () => {
                         <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all duration-500 ${
-                              percent >= 100
+                              isTargetAchieved
                                 ? 'bg-emerald-500'
                                 : percent >= 70
                                 ? 'bg-indigo-600'
@@ -601,7 +721,7 @@ export const TargetsView: React.FC = () => {
 
                         <div className="flex items-center justify-between font-semibold text-[11px] text-slate-600">
                           <span>
-                            Achieved:{' '}
+                            Attained:{' '}
                             <strong className="text-slate-900">
                               {formatMetricValue(actual, t.type, t.currency, t.customKpiUnit)}
                             </strong>
@@ -613,15 +733,53 @@ export const TargetsView: React.FC = () => {
                             </strong>
                           </span>
                         </div>
+                      </div>
 
-                        <div className="flex items-center justify-between text-[10px] text-slate-400">
-                          <span>Remaining: {formatMetricValue(remaining, t.type, t.currency, t.customKpiUnit)}</span>
-                          <span>{calc.timeRemainingDays} days remaining</span>
+                      {/* Task Breakdown Verification Checklist Pill */}
+                      <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-slate-700 flex items-center gap-1">
+                            <CheckSquare size={13} className="text-indigo-600" />
+                            <span>Mandatory Task Sign-offs</span>
+                          </span>
+                          <span
+                            className={`font-bold ${
+                              completedMandatoryTasksCount === mandatoryTasksCount && mandatoryTasksCount > 0
+                                ? 'text-emerald-700'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {completedMandatoryTasksCount}/{mandatoryTasksCount} verified
+                          </span>
+                        </div>
+
+                        {/* Badges for pending review & blockers */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                          {pendingReviewTasksCount > 0 && (
+                            <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-amber-300">
+                              <Clock size={10} />
+                              {pendingReviewTasksCount} awaiting review
+                            </span>
+                          )}
+
+                          {blockedTasksCount > 0 && (
+                            <span className="bg-rose-100 text-rose-900 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-rose-300">
+                              <AlertTriangle size={10} />
+                              {blockedTasksCount} blocked
+                            </span>
+                          )}
+
+                          {isTargetAchieved && (
+                            <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-emerald-300">
+                              <Trophy size={10} />
+                              Goal criteria verified
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Card Footer: Assignees & Quick Action */}
+                    {/* Card Footer: Assignees & Action Buttons */}
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px]">
                       <div className="flex items-center gap-1.5">
                         <div className="flex -space-x-1.5 overflow-hidden">
@@ -642,10 +800,24 @@ export const TargetsView: React.FC = () => {
                         )}
                       </div>
 
-                      <span className="font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
-                        <span>Details</span>
-                        <ChevronRight size={13} />
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setBlockerModalCalc(calc)}
+                          className="px-2.5 py-1 text-slate-700 hover:text-indigo-700 bg-slate-100 hover:bg-indigo-50 rounded-lg font-bold transition-colors flex items-center gap-1"
+                          title="Inspect task completion evidence and criteria requirements"
+                        >
+                          <FileText size={12} />
+                          <span>Criteria</span>
+                        </button>
+
+                        <button
+                          onClick={() => setSelectedCalculation(calc)}
+                          className="px-2.5 py-1 text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 rounded-lg font-bold transition-colors flex items-center gap-0.5"
+                        >
+                          <span>Details</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -655,7 +827,7 @@ export const TargetsView: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: TEAM PERFORMANCE */}
+      {/* TAB 2: TEAM ATTAINMENT */}
       {activeTab === 'team' && (
         <TeamPerformanceTab
           calculations={targetCalculations}
@@ -665,18 +837,18 @@ export const TargetsView: React.FC = () => {
         />
       )}
 
-      {/* TAB 3: INDIVIDUAL PERFORMANCE */}
+      {/* TAB 3: AGENT PERFORMANCE */}
       {activeTab === 'individual' && (
         <IndividualPerformanceTab
           calculations={targetCalculations}
           users={users}
           selectedUser={selectedIndividualUser}
-          onSelectUser={setSelectedIndividualUser}
+          onSelectUser={(user) => setSelectedIndividualUser(user)}
           onSelectTarget={(calc) => setSelectedCalculation(calc)}
         />
       )}
 
-      {/* TAB 4: TARGET REPORTS & ANALYTICS */}
+      {/* TAB 4: ATTAINMENT REPORTS */}
       {activeTab === 'reports' && (
         <TargetReportsTab
           calculations={targetCalculations}
@@ -685,17 +857,60 @@ export const TargetsView: React.FC = () => {
         />
       )}
 
-      {/* TAB 5: TARGET AUDIT HISTORY */}
+      {/* TAB 5: AUDIT LOGS */}
       {activeTab === 'history' && (
         <TargetAuditHistoryTab
           targets={targets}
           users={users}
-          onSelectTarget={(calc) => setSelectedCalculation(calc)}
           calculations={targetCalculations}
+          onSelectTarget={(calc) => setSelectedCalculation(calc)}
         />
       )}
 
-      {/* Create / Edit Target Modal */}
+      {/* Goal Creation & Task Assignment Modal */}
+      {showGoalTaskModal && (
+        <GoalTaskAssignmentModal
+          onClose={() => setShowGoalTaskModal(false)}
+          onGoalCreated={(goalId) => {
+            const found = targetCalculations.find((c) => c.target.id === goalId);
+            if (found) setSelectedCalculation(found);
+          }}
+        />
+      )}
+
+      {/* Modal for Inspecting Achievement Blockers & Criteria */}
+      {blockerModalCalc && (
+        <GoalAchievementBlockerModal
+          calculation={blockerModalCalc}
+          onClose={() => setBlockerModalCalc(null)}
+          onOpenTaskReview={(taskId) => {
+            const t = tasks.find((item) => item.id === taskId);
+            if (t) setReviewModalTask(t);
+          }}
+          onOpenTaskSubmit={(taskId) => {
+            const t = tasks.find((item) => item.id === taskId);
+            if (t) setSubmissionModalTask(t);
+          }}
+        />
+      )}
+
+      {/* Review Modal */}
+      {reviewModalTask && (
+        <TaskReviewModal
+          task={reviewModalTask}
+          onClose={() => setReviewModalTask(null)}
+        />
+      )}
+
+      {/* Submit Evidence Modal */}
+      {submissionModalTask && (
+        <TaskEvidenceSubmissionModal
+          task={submissionModalTask}
+          onClose={() => setSubmissionModalTask(null)}
+        />
+      )}
+
+      {/* Create / Edit Standard Target Modal */}
       <CreateEditTargetModal
         isOpen={showCreateModal}
         onClose={() => {
@@ -718,7 +933,37 @@ export const TargetsView: React.FC = () => {
         onSendReminder={sendTargetReminder}
         users={users}
         currentUser={currentUser}
+        deals={deals}
+        onMoveDealStage={moveDealStage}
+        onNavigateToDeals={() => setActiveNav('deals')}
       />
+
+      {/* Strategic How To Achieve Targets Playbook Modal */}
+      <HowToAchieveTargetsModal
+        isOpen={showHowToAchieveModal}
+        onClose={() => setShowHowToAchieveModal(false)}
+        targets={targetCalculations}
+        deals={deals}
+        currentUser={currentUser}
+        onNavigateToDeals={() => setActiveNav('deals')}
+      />
+
+      {/* Target Mission & Gamified Quest Creator Modal */}
+      {showTargetMissionModal && (
+        <TargetMissionModal
+          isOpen={showTargetMissionModal}
+          onClose={() => setShowTargetMissionModal(false)}
+          allTargets={targetCalculations}
+          targetCalculation={selectedCalculation || targetCalculations[0] || null}
+          deals={deals}
+          users={users}
+          currentUser={currentUser}
+          onDeployMission={(taskData) => {
+            addTask(taskData);
+            setActiveNav('tasks');
+          }}
+        />
+      )}
     </div>
   );
 };

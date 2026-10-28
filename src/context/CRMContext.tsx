@@ -43,6 +43,7 @@ import {
   UserWorkSchedule,
 } from '../types';
 import { isWithinWorkingHours, DEFAULT_WORK_SCHEDULE } from '../utils/profileUtils';
+import { calculateTargetProgress } from '../components/views/targets/targetUtils';
 import {
   initialOrganisation,
   initialUsers,
@@ -197,6 +198,22 @@ interface CRMContextType {
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>) => Task;
   updateTask: (id: string, updates: Partial<Task>, note?: string) => void;
   deleteTask: (id: string) => void;
+  submitTaskEvidence: (
+    taskId: string,
+    evidence: {
+      notes: string;
+      documentUrls?: string[];
+      metricResult?: number;
+      fileNames?: string[];
+    }
+  ) => { success: boolean; message?: string };
+  reviewTaskSubmission: (
+    taskId: string,
+    decision: 'approved' | 'rejected',
+    reason?: string
+  ) => { success: boolean; message?: string };
+  setTaskBlocked: (taskId: string, blockedReason: string) => void;
+  resumeTask: (taskId: string) => void;
 
   // Cases
   cases: Case[];
@@ -292,14 +309,20 @@ interface CRMContextType {
   updateCallScript: (id: string, updates: Partial<CallScript>) => void;
   deleteCallScript: (id: string) => void;
 
-  // Targets
+  // Targets & Goals
   targets: Target[];
   addTarget: (target: Omit<Target, 'id' | 'createdAt'>) => Target;
+  createGoalWithTasks: (
+    goalData: Omit<Target, 'id' | 'createdAt'>,
+    tasksData?: Array<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>>
+  ) => { goal: Target; tasks: Task[] };
   updateTarget: (id: string, updates: Partial<Target>, note?: string) => void;
   deleteTarget: (id: string) => void;
   overrideTargetProgress: (id: string, manualValue: number, status?: Target['status'], note?: string) => void;
   sendTargetReminder: (targetId: string, customMessage?: string) => void;
   resetTargetsToDefault: () => void;
+  checkGoalCanBeAchieved: (targetId: string) => { canAchieve: boolean; reasons: string[] };
+  recalculateGoalProgress: (targetId: string) => void;
 
   // Documents & Folders
   folders: Folder[];
@@ -1892,6 +1915,270 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('TASK_DELETED', `Soft deleted task ID ${id}`);
   };
 
+  const submitTaskEvidence = (
+    taskId: string,
+    evidence: {
+      notes: string;
+      documentUrls?: string[];
+      metricResult?: number;
+      fileNames?: string[];
+    }
+  ): { success: boolean; message?: string } => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return { success: false, message: 'Task not found' };
+
+    const now = new Date().toISOString();
+    const submissionEvidence = {
+      ...evidence,
+      submittedAt: now,
+    };
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          const newHistory = [
+            {
+              timestamp: now,
+              actor: currentUser.name,
+              oldPercent: t.completionPercentage,
+              newPercent: Math.max(t.completionPercentage, 80),
+              oldStatus: t.status,
+              newStatus: 'Under Review' as const,
+              note: `Submitted completion evidence for manager review: ${evidence.notes.substring(0, 100)}`,
+            },
+            ...t.history,
+          ];
+          return {
+            ...t,
+            status: 'Under Review' as const,
+            completionPercentage: Math.max(t.completionPercentage, 80),
+            evidence: submissionEvidence,
+            history: newHistory,
+            updatedAt: now,
+          };
+        }
+        return t;
+      })
+    );
+
+    // Notify managers & admin
+    const managers = users.filter((u) => u.role === 'manager' || u.role === 'admin');
+    managers.forEach((m) => {
+      addNotification({
+        userId: m.id,
+        type: 'task_alert',
+        title: 'Task Submission For Review',
+        message: `${currentUser.name} submitted task "${task.title}" with evidence for manager verification.`,
+        read: false,
+      });
+    });
+
+    logAudit('TASK_SUBMITTED_FOR_REVIEW', `User ${currentUser.name} submitted evidence for task "${task.title}" (ID: ${taskId})`);
+
+    return { success: true, message: 'Work submitted for review successfully.' };
+  };
+
+  const reviewTaskSubmission = (
+    taskId: string,
+    decision: 'approved' | 'rejected',
+    reason?: string
+  ): { success: boolean; message?: string } => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return { success: false, message: 'Task not found' };
+
+    // Prevent unauthorized users from reviewing
+    const isAuthorizedReviewer = currentUser.role === 'admin' || currentUser.role === 'manager';
+    if (!isAuthorizedReviewer) {
+      return { success: false, message: 'Unauthorized: Only managers or admins can review and approve task work.' };
+    }
+
+    // Strict rule: Prevent agents from approving their own work when approval is required
+    if (task.assigneeId === currentUser.id && currentUser.role !== 'admin') {
+      return {
+        success: false,
+        message: 'Conflict of Interest: You cannot review or approve your own submitted task work. Another manager must verify it.',
+      };
+    }
+
+    const now = new Date().toISOString();
+    const reviewRecord = {
+      id: `rev-${Date.now()}`,
+      reviewerId: currentUser.id,
+      reviewerName: currentUser.name,
+      decision,
+      reason,
+      timestamp: now,
+    };
+
+    if (decision === 'approved') {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === taskId) {
+            const newHistory = [
+              {
+                timestamp: now,
+                actor: currentUser.name,
+                oldPercent: t.completionPercentage,
+                newPercent: 100,
+                oldStatus: t.status,
+                newStatus: 'Completed' as const,
+                note: `Approved by ${currentUser.name}.${reason ? ` Feedback: ${reason}` : ''}`,
+              },
+              ...t.history,
+            ];
+            return {
+              ...t,
+              status: 'Completed' as const,
+              completionPercentage: 100,
+              rejectionReason: undefined,
+              reviewHistory: [reviewRecord, ...(t.reviewHistory || [])],
+              history: newHistory,
+              updatedAt: now,
+            };
+          }
+          return t;
+        })
+      );
+
+      // Notify assignee
+      addNotification({
+        userId: task.assigneeId,
+        type: 'task_alert',
+        title: 'Task Approved! 🎉',
+        message: `Your task "${task.title}" was approved by ${currentUser.name}.${reason ? ` Feedback: ${reason}` : ''}`,
+        read: false,
+      });
+
+      logAudit('TASK_APPROVED', `Manager ${currentUser.name} approved task "${task.title}" (ID: ${taskId})`);
+
+      return { success: true, message: 'Task approved and marked Completed.' };
+    } else {
+      // Rejected: return to In Progress
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === taskId) {
+            const newHistory = [
+              {
+                timestamp: now,
+                actor: currentUser.name,
+                oldPercent: t.completionPercentage,
+                newPercent: 50,
+                oldStatus: t.status,
+                newStatus: 'In Progress' as const,
+                note: `Rejected by ${currentUser.name}: ${reason || 'Needs revision'}`,
+              },
+              ...t.history,
+            ];
+            return {
+              ...t,
+              status: 'In Progress' as const,
+              completionPercentage: 50,
+              rejectionReason: reason || 'Submission did not meet success criteria. Please address reviewer feedback and resubmit.',
+              reviewHistory: [reviewRecord, ...(t.reviewHistory || [])],
+              history: newHistory,
+              updatedAt: now,
+            };
+          }
+          return t;
+        })
+      );
+
+      // Notify assignee
+      addNotification({
+        userId: task.assigneeId,
+        type: 'task_alert',
+        title: 'Task Revision Requested ⚠️',
+        message: `Your task "${task.title}" was returned for revision by ${currentUser.name}. Reason: ${reason || 'Additional evidence required.'}`,
+        read: false,
+      });
+
+      logAudit('TASK_REJECTED', `Manager ${currentUser.name} rejected task "${task.title}" (ID: ${taskId}). Reason: ${reason}`);
+
+      return { success: true, message: 'Task returned to In Progress with reviewer feedback.' };
+    }
+  };
+
+  const setTaskBlocked = (taskId: string, blockedReason: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const now = new Date().toISOString();
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          const newHistory = [
+            {
+              timestamp: now,
+              actor: currentUser.name,
+              oldPercent: t.completionPercentage,
+              newPercent: t.completionPercentage,
+              oldStatus: t.status,
+              newStatus: 'Blocked' as const,
+              note: `Blocked: ${blockedReason}`,
+            },
+            ...t.history,
+          ];
+          return {
+            ...t,
+            status: 'Blocked' as const,
+            blockedReason,
+            history: newHistory,
+            updatedAt: now,
+          };
+        }
+        return t;
+      })
+    );
+
+    logAudit('TASK_BLOCKED', `Task "${task.title}" marked Blocked. Reason: ${blockedReason}`);
+
+    // Notify managers
+    users.filter((u) => u.role === 'manager' || u.role === 'admin').forEach((m) => {
+      addNotification({
+        userId: m.id,
+        type: 'task_alert',
+        title: 'Task Blocked Alert 🚨',
+        message: `${currentUser.name} reported a blocker on task "${task.title}": ${blockedReason}`,
+        read: false,
+      });
+    });
+  };
+
+  const resumeTask = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const now = new Date().toISOString();
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          const newHistory = [
+            {
+              timestamp: now,
+              actor: currentUser.name,
+              oldPercent: t.completionPercentage,
+              newPercent: t.completionPercentage,
+              oldStatus: t.status,
+              newStatus: 'In Progress' as const,
+              note: `Unblocked and resumed by ${currentUser.name}`,
+            },
+            ...t.history,
+          ];
+          return {
+            ...t,
+            status: 'In Progress' as const,
+            blockedReason: undefined,
+            history: newHistory,
+            updatedAt: now,
+          };
+        }
+        return t;
+      })
+    );
+
+    logAudit('TASK_RESUMED', `Task "${task.title}" unblocked and resumed`);
+  };
+
   // Cases
   const addCase = (caseData: Omit<Case, 'id' | 'createdAt' | 'updatedAt' | 'internalNotes'>) => {
     const newCase: Case = {
@@ -2474,6 +2761,25 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const existing = targets.find((t) => t.id === id);
     if (!existing) return;
 
+    // Strict rule: Prevent bypassing goal completion rules without meeting criteria!
+    if (status === 'Achieved' || status === 'Completed') {
+      const targetTasks = tasks.filter((t) => !t.deletedAt && t.targetId === id);
+      const uncompletedMandatory = targetTasks.filter(
+        (t) => t.isMandatory !== false && t.status !== 'Completed'
+      );
+      if (uncompletedMandatory.length > 0) {
+        addNotification({
+          userId: currentUser.id,
+          type: 'task_alert',
+          title: 'Goal Achievement Blocked',
+          message: `Cannot mark "${existing.name}" as Achieved. ${uncompletedMandatory.length} mandatory task(s) are still pending verification and manager approval.`,
+          read: false,
+        });
+        logAudit('GOAL_OVERRIDE_REJECTED', `Blocked attempt to prematurely mark goal "${existing.name}" as Achieved without satisfying mandatory tasks.`);
+        return;
+      }
+    }
+
     const now = new Date().toISOString();
     const historyItem = {
       id: `th-${Date.now()}-ovr`,
@@ -2504,6 +2810,91 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     logAudit('TARGET_PROGRESS_OVERRIDDEN', `Overrode target achievement for "${existing.name}" to ${manualValue}`);
+  };
+
+  const createGoalWithTasks = (
+    goalData: Omit<Target, 'id' | 'createdAt'>,
+    tasksData: Array<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>> = []
+  ): { goal: Target; tasks: Task[] } => {
+    const newGoal = addTarget({
+      ...goalData,
+      status: goalData.status || 'Active',
+    });
+
+    const createdTasks: Task[] = [];
+    tasksData.forEach((td) => {
+      const task = addTask({
+        ...td,
+        targetId: newGoal.id,
+        status: td.status || 'Pending',
+        isMandatory: td.isMandatory !== false,
+        requiresApproval: td.requiresApproval !== false,
+        completionPercentage: 0,
+      });
+      createdTasks.push(task);
+    });
+
+    logAudit(
+      'GOAL_WITH_TASKS_CREATED',
+      `Created Goal "${newGoal.name}" with ${createdTasks.length} assigned task(s)`
+    );
+
+    return { goal: newGoal, tasks: createdTasks };
+  };
+
+  const checkGoalCanBeAchieved = (targetId: string): { canAchieve: boolean; reasons: string[] } => {
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) return { canAchieve: false, reasons: ['Goal not found'] };
+
+    const calc = calculateTargetProgress(target, deals, cases, contacts, users, '2026-09-28', tasks);
+    return {
+      canAchieve: calc.isTargetAchieved,
+      reasons: calc.achievementBlockers,
+    };
+  };
+
+  const recalculateGoalProgress = (targetId: string) => {
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) return;
+
+    const calc = calculateTargetProgress(target, deals, cases, contacts, users, '2026-09-28', tasks);
+
+    if (calc.isTargetAchieved && target.status !== 'Achieved' && target.status !== 'Completed') {
+      const now = new Date().toISOString();
+      updateTarget(
+        targetId,
+        {
+          status: 'Achieved',
+          achievedAt: now,
+        },
+        'All mandatory tasks verified and numerical target fulfilled!'
+      );
+
+      // Notify all assigned users and creator
+      const notifyUserIds = Array.from(new Set([...target.assignedUserIds, target.createdBy || '']));
+      notifyUserIds.forEach((uid) => {
+        if (uid) {
+          addNotification({
+            userId: uid,
+            type: 'task_alert',
+            title: '🏆 Goal Achieved!',
+            message: `Goal "${target.name}" has officially been ACHIEVED! All mandatory tasks verified and criteria met.`,
+            read: false,
+          });
+        }
+      });
+
+      logAudit('GOAL_ACHIEVED', `Goal "${target.name}" (ID: ${targetId}) was verified and marked ACHIEVED.`);
+    } else if (!calc.isTargetAchieved && (target.status === 'Achieved' || target.status === 'Completed')) {
+      // Revert if tasks or records became invalid/rejected
+      updateTarget(
+        targetId,
+        {
+          status: calc.computedStatus,
+        },
+        'Goal status recalculated: verification criteria no longer satisfied.'
+      );
+    }
   };
 
   const sendTargetReminder = (targetId: string, customMessage?: string) => {
@@ -3127,6 +3518,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addTask,
         updateTask,
         deleteTask,
+        submitTaskEvidence,
+        reviewTaskSubmission,
+        setTaskBlocked,
+        resumeTask,
 
         cases,
         filteredCases,
@@ -3188,11 +3583,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         targets,
         addTarget,
+        createGoalWithTasks,
         updateTarget,
         deleteTarget,
         overrideTargetProgress,
         sendTargetReminder,
         resetTargetsToDefault,
+        checkGoalCanBeAchieved,
+        recalculateGoalProgress,
 
         folders,
         documents,

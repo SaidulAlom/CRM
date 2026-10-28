@@ -1,4 +1,4 @@
-import { Target, Deal, Case, Contact, User, TargetStatus, TargetType } from '../../../types';
+import { Target, Deal, Case, Contact, User, TargetStatus, TargetType, Task } from '../../../types';
 
 export interface TargetCalculation {
   target: Target;
@@ -11,6 +11,21 @@ export interface TargetCalculation {
   totalDays: number;
   elapsedDays: number;
   elapsedPercent: number;
+
+  // Goal Achievement & Task Assignment System
+  linkedTasks: Task[];
+  totalTasksCount: number;
+  mandatoryTasksCount: number;
+  completedMandatoryTasksCount: number;
+  pendingReviewTasksCount: number;
+  blockedTasksCount: number;
+  isAllMandatoryTasksCompleted: boolean;
+  isNumericalTargetMet: boolean;
+  isTargetAchieved: boolean;
+  achievementBlockers: string[];
+  taskProgressPercent: number;
+  overallGoalProgressPercent: number;
+
   memberContributions: {
     user: User;
     actual: number;
@@ -126,7 +141,8 @@ export function calculateTargetProgress(
   cases: Case[],
   contacts: Contact[],
   users: User[],
-  referenceDate: string = '2026-09-28'
+  referenceDate: string = '2026-09-28',
+  tasks: Task[] = []
 ): TargetCalculation {
   const goal = target.goalValue || 1;
   const assignedSet = new Set(target.assignedUserIds || []);
@@ -311,17 +327,70 @@ export function calculateTargetProgress(
   const elapsedPercent = Math.min(100, Math.round((elapsedDays / totalDays) * 100));
   const timeRemainingDays = Math.max(0, Math.round((endMs - nowMs) / (1000 * 60 * 60 * 24)));
 
+  // Goal Achievement & Task Assignment System Logic
+  const linkedTasks = (tasks || []).filter((t) => !t.deletedAt && t.targetId === target.id);
+  const totalTasksCount = linkedTasks.length;
+  const mandatoryTasks = linkedTasks.filter((t) => t.isMandatory !== false);
+  const mandatoryTasksCount = mandatoryTasks.length;
+  const completedMandatoryTasksCount = mandatoryTasks.filter((t) => t.status === 'Completed').length;
+  const pendingReviewTasksCount = linkedTasks.filter((t) => t.status === 'Under Review').length;
+  const blockedTasksCount = linkedTasks.filter((t) => t.status === 'Blocked').length;
+
+  const isAllMandatoryTasksCompleted = mandatoryTasksCount === 0 ? true : completedMandatoryTasksCount === mandatoryTasksCount;
+  const isNumericalTargetMet = actual >= goal;
+
+  const completedTasksCount = linkedTasks.filter((t) => t.status === 'Completed').length;
+  const taskProgressPercent = totalTasksCount > 0
+    ? Math.round((completedTasksCount / totalTasksCount) * 100)
+    : 100;
+
+  // Blended overall progress
+  const overallGoalProgressPercent = totalTasksCount > 0
+    ? Math.min(100, Math.round((percent + taskProgressPercent) / 2))
+    : Math.min(100, percent);
+
+  const achievementBlockers: string[] = [];
+  if (!isNumericalTargetMet) {
+    achievementBlockers.push(
+      `Metric target not reached: ${formatMetricValue(actual, target.type, target.currency)} of ${formatMetricValue(goal, target.type, target.currency)} (${percent}%). Remaining gap: ${formatMetricValue(remaining, target.type, target.currency)}.`
+    );
+  }
+  if (mandatoryTasksCount > 0 && !isAllMandatoryTasksCompleted) {
+    achievementBlockers.push(
+      `Mandatory task verification incomplete: ${completedMandatoryTasksCount}/${mandatoryTasksCount} verified. ${mandatoryTasksCount - completedMandatoryTasksCount} mandatory task(s) still require completion and manager approval.`
+    );
+  }
+  if (pendingReviewTasksCount > 0) {
+    achievementBlockers.push(
+      `${pendingReviewTasksCount} task(s) currently Under Review awaiting manager sign-off.`
+    );
+  }
+  if (blockedTasksCount > 0) {
+    achievementBlockers.push(
+      `${blockedTasksCount} task(s) currently marked Blocked.`
+    );
+  }
+
+  // A goal cannot be marked Achieved by a simple button click.
+  // It is Achieved ONLY when:
+  // 1. Numerical target is met (actual >= goal)
+  // 2. All mandatory tasks are completed & verified (approved)
+  // 3. No blocked tasks exist
+  const isTargetAchieved = isNumericalTargetMet && isAllMandatoryTasksCompleted && blockedTasksCount === 0;
+
   // Status calculation
   let computedStatus: TargetStatus = 'Active';
-  if (target.manualOverrideStatus && target.status) {
+  if (target.status === 'Draft' || target.status === 'Cancelled') {
     computedStatus = target.status;
-  } else if (target.status === 'Draft' || target.status === 'Cancelled') {
-    computedStatus = target.status;
+  } else if (blockedTasksCount > 0 || target.status === 'Blocked') {
+    computedStatus = 'Blocked';
+  } else if (isTargetAchieved) {
+    computedStatus = 'Achieved';
+  } else if (pendingReviewTasksCount > 0) {
+    computedStatus = 'Under Review';
   } else if (referenceDate < target.startDate) {
     computedStatus = 'Upcoming';
-  } else if (actual >= goal) {
-    computedStatus = 'Completed';
-  } else if (referenceDate > target.endDate && actual < goal) {
+  } else if (referenceDate > target.endDate && !isTargetAchieved) {
     computedStatus = 'Expired';
   } else {
     // In progress: Compare elapsed progress to expected schedule pace
@@ -378,6 +447,18 @@ export function calculateTargetProgress(
     totalDays,
     elapsedDays,
     elapsedPercent,
+    linkedTasks,
+    totalTasksCount,
+    mandatoryTasksCount,
+    completedMandatoryTasksCount,
+    pendingReviewTasksCount,
+    blockedTasksCount,
+    isAllMandatoryTasksCompleted,
+    isNumericalTargetMet,
+    isTargetAchieved,
+    achievementBlockers,
+    taskProgressPercent,
+    overallGoalProgressPercent,
     memberContributions,
     contributingRecords,
   };
@@ -404,7 +485,7 @@ export function calculateUserScorecard(
   let totalPercentSum = 0;
 
   userTargets.forEach((c) => {
-    if (c.computedStatus === 'Completed') targetsCompletedCount++;
+    if (c.computedStatus === 'Achieved' || c.computedStatus === 'Completed') targetsCompletedCount++;
     if (c.computedStatus === 'On Track') targetsOnTrackCount++;
     if (c.computedStatus === 'At Risk') targetsAtRiskCount++;
 

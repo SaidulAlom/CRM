@@ -57,6 +57,7 @@ export const ContactsView: React.FC = () => {
 
   // Excel Export and Import State
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [excelImportMode, setExcelImportMode] = useState<'file' | 'manual'>('file');
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -359,12 +360,29 @@ export const ContactsView: React.FC = () => {
           {/* Import from Excel Button */}
           <button
             id="contacts-import-excel-btn"
-            onClick={() => setIsExcelImportOpen(true)}
+            onClick={() => {
+              setExcelImportMode('file');
+              setIsExcelImportOpen(true);
+            }}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-2xs transition-colors"
-            title="Upload .xlsx/.xls spreadsheet or paste tabular data with validation"
+            title="Upload .xlsx/.xls spreadsheet file with automatic mapping"
           >
             <Download size={14} className="rotate-180" />
             <span>Import from Excel</span>
+          </button>
+
+          {/* Manual Import Form Button */}
+          <button
+            id="contacts-manual-import-btn"
+            onClick={() => {
+              setExcelImportMode('manual');
+              setIsExcelImportOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            title="Import contacts manually using a structured form without uploading any file"
+          >
+            <Users size={14} className="text-indigo-600" />
+            <span>Manual Import Form</span>
           </button>
 
           {/* Create Custom View Button */}
@@ -676,6 +694,7 @@ export const ContactsView: React.FC = () => {
       {/* Excel & Manual Import Modal */}
       <ExcelImportModal
         isOpen={isExcelImportOpen}
+        initialMode={excelImportMode}
         onClose={() => setIsExcelImportOpen(false)}
         targetModule="contact"
         onImportComplete={(summary) => {

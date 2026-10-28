@@ -14,6 +14,7 @@ import {
   Lock,
   Layers,
   FileDown,
+  Users,
 } from 'lucide-react';
 import { ImportSourceApp } from '../../types';
 import { ExportWizardView } from './exportData/ExportWizardView';
@@ -30,6 +31,7 @@ export const ImportExportView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'export' | 'import' | 'guides' | 'export_history' | 'import_history'>('export');
   const [selectedPresetForImport, setSelectedPresetForImport] = useState<ImportSourceApp>('generic_csv');
   const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
+  const [excelImportModalMode, setExcelImportModalMode] = useState<'file' | 'manual'>('file');
 
   // RBAC permission check: standard users can view, managers & admins can perform import & export
   const canImportExport = currentUser.role === 'admin' || currentUser.role === 'manager';
@@ -58,16 +60,34 @@ export const ImportExportView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Quick Excel & Manual Import Modal Trigger */}
+          {/* Quick Excel Import Modal Trigger */}
           <button
             id="open-excel-import-modal-btn"
             type="button"
-            onClick={() => setIsExcelImportModalOpen(true)}
+            onClick={() => {
+              setExcelImportModalMode('file');
+              setIsExcelImportModalOpen(true);
+            }}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-2xs transition-colors"
-            title="Upload .xlsx/.xls spreadsheet or paste tabular data"
+            title="Upload .xlsx/.xls spreadsheet file"
           >
             <FileSpreadsheet size={15} />
-            <span>Excel & Manual Import</span>
+            <span>Import from Excel</span>
+          </button>
+
+          {/* Quick Manual Contact Form Trigger */}
+          <button
+            id="open-manual-form-modal-btn"
+            type="button"
+            onClick={() => {
+              setExcelImportModalMode('manual');
+              setIsExcelImportModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-200 text-indigo-900 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            title="Enter contacts directly into form without uploading any file"
+          >
+            <Users size={15} className="text-indigo-600" />
+            <span>Manual Contact Form</span>
           </button>
 
           {/* Security & Role Testing Indicator */}
@@ -206,6 +226,7 @@ export const ImportExportView: React.FC = () => {
       {/* Excel & Manual Import Modal */}
       <ExcelImportModal
         isOpen={isExcelImportModalOpen}
+        initialMode={excelImportModalMode}
         onClose={() => setIsExcelImportModalOpen(false)}
         targetModule="contact"
       />

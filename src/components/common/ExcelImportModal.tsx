@@ -36,8 +36,38 @@ interface ExcelImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   targetModule?: 'contact' | 'company';
+  initialMode?: 'file' | 'manual';
   onImportComplete?: (summary: { imported: number; updated: number; skipped: number }) => void;
 }
+
+export interface ManualContactFormItem {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  mobile: string;
+  companyName: string;
+  jobTitle: string;
+  type: 'lead' | 'customer' | 'vendor' | 'other';
+  mailingAddress: string;
+  notes: string;
+  validationError?: string;
+}
+
+const createNewManualContact = (): ManualContactFormItem => ({
+  id: `manual_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  mobile: '',
+  companyName: '',
+  jobTitle: '',
+  type: 'lead',
+  mailingAddress: '',
+  notes: '',
+});
 
 interface TargetFieldDef {
   key: string;
@@ -88,6 +118,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   isOpen,
   onClose,
   targetModule = 'contact',
+  initialMode = 'file',
   onImportComplete,
 }) => {
   const {
@@ -105,7 +136,13 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Input Mode: 'file' or 'manual'
-  const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
+  const [inputMode, setInputMode] = useState<'file' | 'manual'>(initialMode);
+
+  // Manual Contact Form State (Structured entries without uploading any file)
+  const [manualContacts, setManualContacts] = useState<ManualContactFormItem[]>([
+    createNewManualContact(),
+  ]);
+  const [manualEntryTab, setManualEntryTab] = useState<'form' | 'paste'>('form');
 
   // File Upload State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +181,12 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   } | null>(null);
 
   useEffect(() => {
+    if (isOpen && initialMode) {
+      setInputMode(initialMode);
+    }
+  }, [isOpen, initialMode]);
+
+  useEffect(() => {
     if (!isOpen) {
       setCurrentStep(1);
       setUploadedFile(null);
@@ -154,8 +197,203 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
       setRowOverrides({});
       setImportSummary(null);
       setFileError(null);
+      setManualContacts([createNewManualContact()]);
+      setManualEntryTab('form');
     }
   }, [isOpen]);
+
+  // Add a single new contact row to manual form
+  const handleAddManualContact = () => {
+    setManualContacts((prev) => [...prev, createNewManualContact()]);
+  };
+
+  // Add 3 rows at once
+  const handleAddMultipleManualContacts = (count: number) => {
+    const additions = Array.from({ length: count }, () => createNewManualContact());
+    setManualContacts((prev) => [...prev, ...additions]);
+  };
+
+  // Remove a row from manual form
+  const handleRemoveManualContact = (id: string) => {
+    if (manualContacts.length <= 1) {
+      setManualContacts([createNewManualContact()]);
+      return;
+    }
+    setManualContacts((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  // Update specific field in a manual contact row
+  const handleUpdateManualContact = (
+    id: string,
+    field: keyof ManualContactFormItem,
+    value: string
+  ) => {
+    setManualContacts((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const updated = { ...c, [field]: value };
+        if (updated.validationError && field === 'email' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          updated.validationError = undefined;
+        } else if (updated.validationError && (field === 'firstName' || field === 'lastName') && value.trim()) {
+          updated.validationError = undefined;
+        }
+        return updated;
+      })
+    );
+  };
+
+  // Clear all manual form rows
+  const handleClearManualContacts = () => {
+    setManualContacts([createNewManualContact()]);
+    setFileError(null);
+  };
+
+  // Pre-populate sample contacts in manual form
+  const handleLoadSampleManualContacts = () => {
+    setManualContacts([
+      {
+        id: `sample_1_${Date.now()}`,
+        firstName: 'Marcus',
+        lastName: 'Aurelius',
+        email: 'marcus.aurelius@stoicadvisory.com',
+        phone: '+1 (555) 234-5678',
+        mobile: '+1 (555) 987-6543',
+        companyName: 'Stoic Advisory',
+        jobTitle: 'Senior Managing Director',
+        type: 'customer',
+        mailingAddress: '100 Market St, Suite 400, San Francisco, CA',
+        notes: 'Executive sponsor for enterprise digital expansion',
+      },
+      {
+        id: `sample_2_${Date.now()}`,
+        firstName: 'Helena',
+        lastName: 'Vance',
+        email: 'helena.vance@solarenergy.org',
+        phone: '+1 (555) 876-5432',
+        mobile: '+1 (555) 123-9876',
+        companyName: 'Solaris CleanTech',
+        jobTitle: 'VP of Engineering',
+        type: 'lead',
+        mailingAddress: '500 Technology Square, Cambridge, MA',
+        notes: 'Requested product overview and security evaluation',
+      },
+      {
+        id: `sample_3_${Date.now()}`,
+        firstName: 'David',
+        lastName: 'Ross',
+        email: 'david.ross@summitridge.com',
+        phone: '+1 (555) 432-1098',
+        mobile: '+1 (555) 345-6789',
+        companyName: 'Summit Ridge Corp',
+        jobTitle: 'Head of Operations',
+        type: 'customer',
+        mailingAddress: '200 W Madison St, Chicago, IL',
+        notes: 'Key client assessing team-wide seat expansion',
+      },
+    ]);
+    setFileError(null);
+  };
+
+  // Validate & submit manual contacts directly without any file
+  const handleSubmitManualForm = () => {
+    setFileError(null);
+
+    const nonBlankRows = manualContacts.filter(
+      (c) =>
+        c.firstName.trim() ||
+        c.lastName.trim() ||
+        c.email.trim() ||
+        c.phone.trim() ||
+        c.companyName.trim()
+    );
+
+    if (nonBlankRows.length === 0) {
+      setFileError('Please fill in at least one contact in the form before proceeding.');
+      return;
+    }
+
+    let hasErrors = false;
+    const validatedList = manualContacts.map((c) => {
+      const isRowBlank =
+        !c.firstName.trim() &&
+        !c.lastName.trim() &&
+        !c.email.trim() &&
+        !c.phone.trim() &&
+        !c.companyName.trim();
+
+      if (isRowBlank) return c;
+
+      const errors: string[] = [];
+      if (!c.firstName.trim()) errors.push('First Name required');
+      if (!c.lastName.trim()) errors.push('Last Name required');
+      if (!c.email.trim()) {
+        errors.push('Email required');
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email.trim())) {
+        errors.push('Invalid email address format');
+      }
+
+      if (errors.length > 0) {
+        hasErrors = true;
+        return { ...c, validationError: errors.join(', ') };
+      }
+      return { ...c, validationError: undefined };
+    });
+
+    setManualContacts(validatedList);
+
+    if (hasErrors) {
+      setFileError('Please correct the highlighted required fields (First Name, Last Name, and a valid Email Address) in the form.');
+      return;
+    }
+
+    const validRowsToImport = validatedList.filter(
+      (c) => c.firstName.trim() && c.lastName.trim() && c.email.trim()
+    );
+
+    const standardHeaders = [
+      'First Name',
+      'Last Name',
+      'Email Address',
+      'Phone Number',
+      'Mobile Number',
+      'Company Name',
+      'Job Title',
+      'Contact Type',
+      'Street Address',
+      'Notes / Description',
+    ];
+
+    const matrixRows = validRowsToImport.map((c) => [
+      c.firstName.trim(),
+      c.lastName.trim(),
+      c.email.trim(),
+      c.phone.trim(),
+      c.mobile.trim(),
+      c.companyName.trim(),
+      c.jobTitle.trim(),
+      c.type,
+      c.mailingAddress.trim(),
+      c.notes.trim(),
+    ]);
+
+    setHeaders(standardHeaders);
+    setRawRows(matrixRows);
+    setMappings([
+      { sourceColumn: 'First Name', targetField: 'firstName', sampleValue: validRowsToImport[0].firstName },
+      { sourceColumn: 'Last Name', targetField: 'lastName', sampleValue: validRowsToImport[0].lastName },
+      { sourceColumn: 'Email Address', targetField: 'email', sampleValue: validRowsToImport[0].email },
+      { sourceColumn: 'Phone Number', targetField: 'phone', sampleValue: validRowsToImport[0].phone },
+      { sourceColumn: 'Mobile Number', targetField: 'mobile', sampleValue: validRowsToImport[0].mobile },
+      { sourceColumn: 'Company Name', targetField: 'companyName', sampleValue: validRowsToImport[0].companyName },
+      { sourceColumn: 'Job Title', targetField: 'jobTitle', sampleValue: validRowsToImport[0].jobTitle },
+      { sourceColumn: 'Contact Type', targetField: 'type', sampleValue: validRowsToImport[0].type },
+      { sourceColumn: 'Street Address', targetField: 'mailingAddress', sampleValue: validRowsToImport[0].mailingAddress },
+      { sourceColumn: 'Notes / Description', targetField: 'notes', sampleValue: validRowsToImport[0].notes },
+    ]);
+
+    // Advance directly to Step 3 (Review, Duplicate Rules & Validation)
+    setCurrentStep(3);
+  };
 
   // Auto-build mapping heuristics
   const generateInitialMapping = (detectedHeaders: string[], sampleRow: string[] = []) => {
@@ -645,33 +883,50 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         {/* Wizard Steps Breadcrumb */}
         <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0 overflow-x-auto text-[11px] font-semibold">
           <div className="flex items-center gap-6">
-            <div
-              className={`flex items-center gap-1.5 ${
-                currentStep === 1 ? 'text-indigo-600 font-bold' : currentStep > 1 ? 'text-emerald-700' : 'text-slate-400'
-              }`}
-            >
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
-                currentStep === 1 ? 'bg-indigo-600 text-white' : currentStep > 1 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
-              }`}>
-                {currentStep > 1 ? '✓' : '1'}
-              </span>
-              <span>Source Selection</span>
-            </div>
+            {inputMode === 'file' ? (
+              <>
+                <div
+                  className={`flex items-center gap-1.5 ${
+                    currentStep === 1 ? 'text-indigo-600 font-bold' : currentStep > 1 ? 'text-emerald-700' : 'text-slate-400'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                    currentStep === 1 ? 'bg-indigo-600 text-white' : currentStep > 1 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {currentStep > 1 ? '✓' : '1'}
+                  </span>
+                  <span>Upload Excel File</span>
+                </div>
 
-            <span className="text-slate-300">→</span>
+                <span className="text-slate-300">→</span>
 
-            <div
-              className={`flex items-center gap-1.5 ${
-                currentStep === 2 ? 'text-indigo-600 font-bold' : currentStep > 2 ? 'text-emerald-700' : 'text-slate-400'
-              }`}
-            >
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
-                currentStep === 2 ? 'bg-indigo-600 text-white' : currentStep > 2 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
-              }`}>
-                {currentStep > 2 ? '✓' : '2'}
-              </span>
-              <span>Column Mapping</span>
-            </div>
+                <div
+                  className={`flex items-center gap-1.5 ${
+                    currentStep === 2 ? 'text-indigo-600 font-bold' : currentStep > 2 ? 'text-emerald-700' : 'text-slate-400'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                    currentStep === 2 ? 'bg-indigo-600 text-white' : currentStep > 2 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {currentStep > 2 ? '✓' : '2'}
+                  </span>
+                  <span>Column Mapping</span>
+                </div>
+              </>
+            ) : (
+              <div
+                className={`flex items-center gap-1.5 ${
+                  currentStep === 1 ? 'text-indigo-600 font-bold' : currentStep > 1 ? 'text-emerald-700' : 'text-slate-400'
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                  currentStep === 1 ? 'bg-indigo-600 text-white' : currentStep > 1 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {currentStep > 1 ? '✓' : '1'}
+                </span>
+                <span>Manual Contact Form</span>
+              </div>
+            )}
 
             <span className="text-slate-300">→</span>
 
@@ -683,9 +938,9 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
                 currentStep === 3 ? 'bg-indigo-600 text-white' : currentStep > 3 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
               }`}>
-                {currentStep > 3 ? '✓' : '3'}
+                {currentStep > 3 ? '✓' : inputMode === 'manual' ? '2' : '3'}
               </span>
-              <span>Review & Validate</span>
+              <span>Review & Duplicate Rules</span>
             </div>
 
             <span className="text-slate-300">→</span>
@@ -698,7 +953,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
                 currentStep === 4 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
               }`}>
-                4
+                {inputMode === 'manual' ? '3' : '4'}
               </span>
               <span>Execution & Results</span>
             </div>
@@ -734,7 +989,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
           {currentStep === 1 && (
             <div className="space-y-6">
               {/* Mode Switcher Tabs */}
-              <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+              <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
                 <button
                   type="button"
                   onClick={() => setInputMode('file')}
@@ -752,12 +1007,12 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                   onClick={() => setInputMode('manual')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                     inputMode === 'manual'
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                      ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Copy size={15} />
-                  <span>Manual Import & Paste</span>
+                  <Users size={15} />
+                  <span>Manual Contact Form (No File Needed)</span>
                 </button>
               </div>
 
@@ -864,43 +1119,319 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
               )}
 
               {inputMode === 'manual' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                      <Copy size={14} className="text-indigo-600" />
-                      <span>Direct Table / Spreadsheet Paste</span>
-                    </label>
+                <div className="space-y-4">
+                  {/* Datalist for existing CRM company names */}
+                  <datalist id="crm-modal-companies-list">
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.name} />
+                    ))}
+                  </datalist>
+
+                  {/* Header info & action bar */}
+                  <div className="p-4 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-emerald-50/60 border border-slate-200 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Users size={16} className="text-indigo-600" />
+                        <h3 className="font-bold text-xs text-slate-900">
+                          Manual Contact Entry Form
+                        </h3>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                          No File Upload Required
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Directly enter contact fields into the form. You can add multiple contacts for bulk import.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAddManualContact}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+                      >
+                        <Plus size={13} />
+                        <span>Add Contact</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddMultipleManualContacts(3)}
+                        className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors shadow-2xs"
+                        title="Add 3 empty rows"
+                      >
+                        +3 Rows
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleLoadSampleManualContacts}
+                        className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-semibold transition-colors shadow-2xs"
+                        title="Load 3 sample contacts to test import instantly"
+                      >
+                        Load Sample Contacts
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleClearManualContacts}
+                        className="px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-xl text-xs transition-colors"
+                        title="Reset form"
+                      >
+                        Clear Form
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Contact Form Cards */}
+                  <div className="space-y-3">
+                    {manualContacts.map((contact, idx) => (
+                      <div
+                        key={contact.id}
+                        className={`p-4 bg-white rounded-2xl border transition-all ${
+                          contact.validationError
+                            ? 'border-rose-300 ring-2 ring-rose-100 shadow-xs'
+                            : 'border-slate-200 hover:border-slate-300 shadow-2xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-[10px]">
+                              {idx + 1}
+                            </span>
+                            <span className="font-bold text-xs text-slate-800">
+                              {contact.firstName || contact.lastName
+                                ? `${contact.firstName} ${contact.lastName}`.trim()
+                                : `Contact #${idx + 1}`}
+                            </span>
+                            {contact.validationError && (
+                              <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-semibold rounded-md flex items-center gap-1">
+                                <AlertCircle size={10} />
+                                {contact.validationError}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {manualContacts.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveManualContact(contact.id)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Remove this contact from form"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fields Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                          {/* First Name */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              First Name <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={contact.firstName}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'firstName', e.target.value)}
+                              placeholder="e.g. Jane"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Last Name */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Last Name <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={contact.lastName}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'lastName', e.target.value)}
+                              placeholder="e.g. Doe"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Email Address */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Email Address <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={contact.email}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'email', e.target.value)}
+                              placeholder="e.g. jane.doe@company.com"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Phone */}
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                              Phone Number
+                            </label>
+                            <input
+                              type="tel"
+                              value={contact.phone}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'phone', e.target.value)}
+                              placeholder="e.g. +1 (555) 012-3456"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Company Name */}
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                              Company / Organization
+                            </label>
+                            <input
+                              type="text"
+                              list="crm-modal-companies-list"
+                              value={contact.companyName}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'companyName', e.target.value)}
+                              placeholder="Select or enter company"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Job Title */}
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                              Job Title / Role
+                            </label>
+                            <input
+                              type="text"
+                              value={contact.jobTitle}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'jobTitle', e.target.value)}
+                              placeholder="e.g. VP of Product"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Contact Type */}
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                              Contact Type
+                            </label>
+                            <select
+                              value={contact.type}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'type', e.target.value as any)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white"
+                            >
+                              <option value="lead">Lead</option>
+                              <option value="customer">Customer</option>
+                              <option value="vendor">Vendor</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+
+                          {/* Street Address */}
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                              Mailing / Street Address
+                            </label>
+                            <input
+                              type="text"
+                              value={contact.mailingAddress}
+                              onChange={(e) => handleUpdateManualContact(contact.id, 'mailingAddress', e.target.value)}
+                              placeholder="e.g. 100 Main St, Suite 200"
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Notes / Description */}
+                        <div className="mt-2.5">
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            Notes / Description
+                          </label>
+                          <input
+                            type="text"
+                            value={contact.notes}
+                            onChange={(e) => handleUpdateManualContact(contact.id, 'notes', e.target.value)}
+                            placeholder="e.g. Met at summit, interested in enterprise tier..."
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Form Bottom Action Toolbar */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-wrap items-center justify-between gap-3">
                     <button
                       type="button"
-                      onClick={handleLoadDemoData}
-                      className="text-emerald-700 hover:text-emerald-900 font-semibold text-[11px] hover:underline"
+                      onClick={handleAddManualContact}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/50 text-indigo-700 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
                     >
-                      Fill with Sample Contacts
+                      <Plus size={14} />
+                      <span>+ Add Another Contact</span>
+                    </button>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500 text-xs font-medium">
+                        {manualContacts.length} contact{manualContacts.length === 1 ? '' : 's'} in form
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSubmitManualForm}
+                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors"
+                      >
+                        <Check size={14} />
+                        <span>Validate & Review Contacts ({manualContacts.filter(c => c.firstName.trim() || c.email.trim()).length || 1})</span>
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Optional Raw Text Paste toggle for power users */}
+                  <div className="pt-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setManualEntryTab(manualEntryTab === 'paste' ? 'form' : 'paste')}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold hover:underline"
+                    >
+                      {manualEntryTab === 'paste' ? '← Back to Structured Contact Form' : 'Need to paste raw tab/comma-separated text instead?'}
                     </button>
                   </div>
 
-                  <p className="text-[11px] text-slate-500">
-                    Copy cells directly from Excel, Google Sheets, or CSV, and paste them below. Include headers in row 1.
-                  </p>
-
-                  <textarea
-                    rows={8}
-                    value={manualText}
-                    onChange={(e) => setManualText(e.target.value)}
-                    placeholder={`First Name\tLast Name\tEmail\tPhone\tCompany\tJob Title\nMarcus\tAurelius\tmarcus@stoic.com\t555-0199\tStoic Ltd\tManaging Director`}
-                    className="w-full p-3 font-mono text-[11px] border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500 leading-relaxed"
-                  />
-
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={handleParseManualText}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5"
-                    >
-                      <span>Parse Pasted Data</span>
-                      <ArrowRight size={14} />
-                    </button>
-                  </div>
+                  {manualEntryTab === 'paste' && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 mt-2">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-xs text-slate-800">
+                          Raw Tabular Text Input
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleLoadDemoData}
+                          className="text-emerald-700 hover:text-emerald-900 font-semibold text-[11px] hover:underline"
+                        >
+                          Load Sample Paste Data
+                        </button>
+                      </div>
+                      <textarea
+                        rows={5}
+                        value={manualText}
+                        onChange={(e) => setManualText(e.target.value)}
+                        placeholder={`First Name\tLast Name\tEmail\tPhone\tCompany\tJob Title\nMarcus\tAurelius\tmarcus@stoic.com\t555-0199\tStoic Ltd\tManaging Director`}
+                        className="w-full p-2.5 font-mono text-[11px] border border-slate-300 rounded-xl bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleParseManualText}
+                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold"
+                        >
+                          Parse & Map Text Data
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1353,7 +1884,13 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
             {currentStep > 1 && currentStep < 4 && (
               <button
                 type="button"
-                onClick={() => setCurrentStep((prev) => (prev - 1) as any)}
+                onClick={() => {
+                  if (currentStep === 3 && inputMode === 'manual') {
+                    setCurrentStep(1);
+                  } else {
+                    setCurrentStep((prev) => (prev - 1) as any);
+                  }
+                }}
                 className="px-3.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
               >
                 <ArrowLeft size={14} />
@@ -1371,7 +1908,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
               {currentStep === 4 ? 'Close' : 'Cancel'}
             </button>
 
-            {currentStep === 1 && (
+            {currentStep === 1 && inputMode === 'file' && (
               <button
                 type="button"
                 disabled={rawRows.length === 0}
@@ -1379,6 +1916,18 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                 className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
               >
                 <span>Continue to Column Mapping</span>
+                <ArrowRight size={14} />
+              </button>
+            )}
+
+            {currentStep === 1 && inputMode === 'manual' && (
+              <button
+                type="button"
+                onClick={handleSubmitManualForm}
+                className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Check size={14} />
+                <span>Validate & Review Contacts</span>
                 <ArrowRight size={14} />
               </button>
             )}

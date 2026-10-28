@@ -206,6 +206,32 @@ export interface Deal {
   deletedAt?: string;
 }
 
+export type TaskStatus =
+  | 'Pending'
+  | 'Not Started'
+  | 'In Progress'
+  | 'Under Review'
+  | 'Completed'
+  | 'Blocked'
+  | 'Waiting';
+
+export interface TaskSubmissionEvidence {
+  notes: string;
+  documentUrls?: string[];
+  metricResult?: number;
+  fileNames?: string[];
+  submittedAt: string;
+}
+
+export interface TaskReviewRecord {
+  id: string;
+  reviewerId: string;
+  reviewerName: string;
+  decision: 'approved' | 'rejected';
+  reason?: string;
+  timestamp: string;
+}
+
 export interface TaskHistoryItem {
   timestamp: string;
   actor: string;
@@ -216,20 +242,47 @@ export interface TaskHistoryItem {
   note?: string;
 }
 
+export interface TaskMilestone {
+  id: string;
+  title: string;
+  completed: boolean;
+  xpValue?: number;
+}
+
 export interface Task {
   id: string;
   title: string;
   deadline: string; // YYYY-MM-DD
-  status: 'Not Started' | 'In Progress' | 'Completed' | 'Waiting';
+  status: TaskStatus;
   completionPercentage: number;
   assigneeId: string;
   companyId?: string;
   contactId?: string;
   description?: string;
+  priority?: 'Low' | 'Medium' | 'High' | 'Critical';
   history: TaskHistoryItem[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+
+  // Goal & Task Assignment System attributes
+  targetId?: string;
+  isMandatory?: boolean;
+  requiresApproval?: boolean;
+  evidence?: TaskSubmissionEvidence;
+  reviewHistory?: TaskReviewRecord[];
+  rejectionReason?: string;
+  blockedReason?: string;
+
+  // Gamified Target Mission attributes
+  dealId?: string;
+  isTargetMission?: boolean;
+  missionType?: 'whale_hunter' | 'pipeline_blitz' | 'boss_battle' | 'sprint_closer' | 'custom';
+  missionDifficulty?: 'Easy' | 'Medium' | 'Epic' | 'Boss';
+  xpReward?: number;
+  targetGapSnapshot?: number;
+  milestones?: TaskMilestone[];
+  badgeUnlocked?: string;
 }
 
 export interface CaseNote {
@@ -439,6 +492,9 @@ export type TargetStatus =
   | 'On Track'
   | 'At Risk'
   | 'Completed'
+  | 'Achieved'
+  | 'Under Review'
+  | 'Blocked'
   | 'Expired'
   | 'Cancelled';
 
@@ -456,6 +512,8 @@ export interface TargetHistoryItem {
     | 'members_changed'
     | 'achievement_overridden'
     | 'completed'
+    | 'achieved'
+    | 'blocked'
     | 'notification_sent';
   details: string;
   oldValue?: string | number;
@@ -487,6 +545,10 @@ export interface Target {
   manualAchievement?: number;
   manualOverrideStatus?: boolean;
   currency?: string;
+  successCriteria?: string | string[];
+  completionMode?: 'tasks_and_target' | 'all_mandatory_tasks' | 'numerical_target_with_tasks' | 'tasks_and_metrics';
+  achievedAt?: string;
+  blockedReason?: string;
   createdAt: string;
   updatedAt?: string;
   createdBy?: string;

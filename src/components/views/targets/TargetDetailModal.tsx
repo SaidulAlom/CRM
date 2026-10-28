@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
-import { Target, User } from '../../../types';
+import React, { useState, useMemo } from 'react';
+import { Target, User, Deal } from '../../../types';
 import { TargetCalculation, formatMetricValue, triggerFileDownload, generateTargetsExport } from './targetUtils';
+import { TargetMissionModal } from './TargetMissionModal';
+import { TaskReviewModal } from '../tasks/TaskReviewModal';
+import { TaskEvidenceSubmissionModal } from '../tasks/TaskEvidenceSubmissionModal';
+import { TaskBlockerModal } from '../tasks/TaskBlockerModal';
+import { useCRM } from '../../../context/CRMContext';
 import {
   X,
   Target as TargetIcon,
@@ -20,6 +25,17 @@ import {
   Sparkles,
   ExternalLink,
   ChevronRight,
+  Compass,
+  ArrowRight,
+  DollarSign,
+  Briefcase,
+  Zap,
+  Swords,
+  Trophy,
+  CheckSquare,
+  Flame,
+  Award,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface TargetDetailModalProps {
@@ -31,6 +47,9 @@ interface TargetDetailModalProps {
   onSendReminder: (targetId: string, customMessage?: string) => void;
   users: User[];
   currentUser: User;
+  deals?: Deal[];
+  onMoveDealStage?: (dealId: string, newStage: string) => void;
+  onNavigateToDeals?: () => void;
 }
 
 export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
@@ -42,6 +61,9 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
   onSendReminder,
   users,
   currentUser,
+  deals = [],
+  onMoveDealStage,
+  onNavigateToDeals,
 }) => {
   if (!calculation) return null;
 
@@ -50,7 +72,7 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
 
   const isManagerOrAdmin = currentUser.role === 'admin' || currentUser.role === 'manager';
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'contributions' | 'records' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'how_to_achieve' | 'contributions' | 'records' | 'history'>('overview');
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [overrideValue, setOverrideValue] = useState(String(actual));
   const [overrideStatus, setOverrideStatus] = useState<Target['status']>(computedStatus);
@@ -59,6 +81,43 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
   const [showReminderPrompt, setShowReminderPrompt] = useState(false);
   const [reminderMessage, setReminderMessage] = useState('');
   const [reminderSentNotice, setReminderSentNotice] = useState(false);
+  const [dealActionNotice, setDealActionNotice] = useState<string | null>(null);
+  const [showMissionModal, setShowMissionModal] = useState(false);
+  const [reviewModalTask, setReviewModalTask] = useState<any | null>(null);
+  const [submitModalTask, setSubmitModalTask] = useState<any | null>(null);
+  const [blockerModalTask, setBlockerModalTask] = useState<any | null>(null);
+
+  const { tasks, addTask, resumeTask, setActiveNav } = useCRM();
+
+  // Active tasks & quests linked to this target
+  const targetMissions = useMemo(() => {
+    return (tasks || []).filter((t) => !t.deletedAt && t.targetId === target.id);
+  }, [tasks, target.id]);
+
+  // Candidate open pipeline deals belonging to assigned reps
+  const candidateDeals = useMemo(() => {
+    if (!deals || deals.length === 0) return [];
+    const assignedSet = new Set(target.assignedUserIds || []);
+    return deals
+      .filter((d) => {
+        if (d.deletedAt) return false;
+        if (d.status === 'won' || d.stage === 'won') return false;
+        return assignedSet.has(d.ownerId);
+      })
+      .sort((a, b) => (b.value || 0) - (a.value || 0));
+  }, [deals, target.assignedUserIds]);
+
+  // Average deal size from won deals
+  const avgDealSize = useMemo(() => {
+    const wonDeals = deals.filter((d) => !d.deletedAt && (d.status === 'won' || d.stage === 'won'));
+    if (wonDeals.length === 0) return 15000;
+    const totalWon = wonDeals.reduce((acc, d) => acc + (d.value || 0), 0);
+    return Math.round(totalWon / wonDeals.length);
+  }, [deals]);
+
+  const dealsNeeded = remaining > 0 && avgDealSize > 0 ? Math.ceil(remaining / avgDealSize) : 0;
+  const recommendedPipelineCoverage = remaining * 3;
+  const dailyRunRate = calculation.timeRemainingDays > 0 ? Math.round(remaining / calculation.timeRemainingDays) : 0;
 
   // Status color styles
   const getStatusBadge = (status: string) => {
@@ -142,6 +201,16 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowMissionModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+              title="Launch a gamified mission quest to achieve this target"
+            >
+              <Swords size={14} />
+              <span>Launch Quest</span>
+              <Sparkles size={11} className="text-amber-300" />
+            </button>
+
+            <button
               onClick={handleExportSingle}
               title="Export target data to CSV"
               className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
@@ -190,6 +259,19 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
               <span>Target progress notifications and reminders sent to assigned team members!</span>
             </div>
             <button onClick={() => setReminderSentNotice(false)} className="text-emerald-600 hover:text-emerald-800 font-bold">
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Deal stage action notification banner */}
+        {dealActionNotice && (
+          <div className="px-6 py-2 bg-indigo-50 border-b border-indigo-200 text-indigo-900 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-indigo-600" />
+              <span>{dealActionNotice}</span>
+            </div>
+            <button onClick={() => setDealActionNotice(null)} className="text-indigo-600 hover:text-indigo-800 font-bold">
               ×
             </button>
           </div>
@@ -280,6 +362,26 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
               }`}
             >
               Overview & Details
+            </button>
+            <button
+              onClick={() => setActiveTab('how_to_achieve')}
+              className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === 'how_to_achieve'
+                  ? 'border-indigo-600 text-indigo-600 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Compass size={14} className="text-indigo-600" />
+              <span>How to Achieve</span>
+              {remaining > 0 ? (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-[10px] text-amber-800 font-bold">
+                  Gap Closer
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-[10px] text-emerald-800 font-bold">
+                  Surpassed!
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('contributions')}
@@ -440,6 +542,497 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Linked Actionable Tasks & Verification Sign-offs */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <CheckSquare size={14} className="text-indigo-600" />
+                      <span>Linked Actionable Tasks & Verification Sign-offs ({targetMissions.length})</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {calculation.completedMandatoryTasksCount} of {calculation.mandatoryTasksCount} mandatory tasks verified. All mandatory tasks must be verified before this goal is marked Achieved.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      setActiveNav('tasks');
+                    }}
+                    className="text-indigo-600 hover:text-indigo-800 text-[11px] font-bold flex items-center gap-1"
+                  >
+                    <span>View in Tasks</span>
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+
+                {targetMissions.length === 0 ? (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs">
+                    No tasks currently linked to this goal. Add actionable tasks from the Tasks view to track verification.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {targetMissions.map((t) => {
+                      const tAssignee = users.find((u) => u.id === t.assigneeId);
+                      const isApproved = t.status === 'Completed';
+                      const isUnderReview = t.status === 'Under Review';
+                      const isBlocked = t.status === 'Blocked';
+
+                      return (
+                        <div
+                          key={t.id}
+                          className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isApproved
+                              ? 'bg-emerald-50/50 border-emerald-200 text-slate-900'
+                              : isBlocked
+                              ? 'bg-rose-50/50 border-rose-200'
+                              : isUnderReview
+                              ? 'bg-amber-50/50 border-amber-200'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900 text-xs">{t.title}</span>
+                              {t.isMandatory !== false && (
+                                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                                  Mandatory
+                                </span>
+                              )}
+                              <span
+                                className={`px-2 py-0.2 rounded text-[10px] font-bold flex items-center gap-1 ${
+                                  isApproved
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : isBlocked
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : isUnderReview
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {isUnderReview && <Clock size={10} />}
+                                {isBlocked && <AlertTriangle size={10} />}
+                                {isApproved && <CheckCircle2 size={10} />}
+                                {t.status} ({t.completionPercentage}%)
+                              </span>
+                            </div>
+
+                            <div className="text-[11px] text-slate-500 flex items-center gap-3">
+                              <span>Assignee: <strong>{tAssignee?.name || 'Unassigned'}</strong></span>
+                              <span>Due: {t.deadline}</span>
+                              {t.evidence?.submittedAt && (
+                                <span className="text-amber-700 font-medium">Evidence submitted</span>
+                              )}
+                            </div>
+
+                            {t.blockedReason && (
+                              <div className="text-[11px] text-rose-700 font-medium">
+                                Blocker: {t.blockedReason}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isUnderReview && isManagerOrAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setReviewModalTask(t)}
+                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-2xs"
+                              >
+                                <ShieldCheck size={12} />
+                                <span>Review Work</span>
+                              </button>
+                            )}
+
+                            {!isApproved && !isUnderReview && !isBlocked && (
+                              <button
+                                type="button"
+                                onClick={() => setSubmitModalTask(t)}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-2xs"
+                              >
+                                <FileText size={12} />
+                                <span>Submit Evidence</span>
+                              </button>
+                            )}
+
+                            {isBlocked && (
+                              <button
+                                type="button"
+                                onClick={() => resumeTask(t.id)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1"
+                              >
+                                <span>Unblock Task</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'how_to_achieve' && (
+            <div className="space-y-6">
+              {/* Gap Analysis & Target Run-Rate Banner */}
+              <div className="p-4 bg-gradient-to-r from-indigo-900 to-slate-900 text-white rounded-2xl shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 rounded-md">
+                        <Compass size={14} />
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                        Target Achievement Strategy & Gap Closer
+                      </span>
+                    </div>
+                    <h3 className="text-base font-bold text-white tracking-tight">
+                      {remaining === 0 ? 'Target Already Achieved!' : `Remaining Gap: ${formatMetricValue(remaining, target.type, target.currency, target.customKpiUnit)}`}
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${getStatusBadge(computedStatus)}`}>
+                      Pacing: {computedStatus}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Gap Metrics Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Goal</span>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {formatMetricValue(goal, target.type, target.currency, target.customKpiUnit)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Achieved So Far</span>
+                    <div className="text-sm font-bold text-emerald-400 mt-0.5">
+                      {formatMetricValue(actual, target.type, target.currency, target.customKpiUnit)} ({percent}%)
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Time Remaining</span>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {calculation.timeRemainingDays} Days left
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Daily Run-Rate Needed</span>
+                    <div className="text-sm font-bold text-amber-300 mt-0.5">
+                      {remaining > 0 ? `${formatMetricValue(dailyRunRate, target.type, target.currency, target.customKpiUnit)}/day` : '0/day (Done)'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gamified Quests to Achieve this Target */}
+              <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl border border-indigo-900/60 shadow-md space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg">
+                        <Swords size={16} />
+                      </span>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                        <Sparkles size={12} /> Gamified Target Quests & Missions
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white tracking-tight">
+                      Turn the remaining {formatMetricValue(remaining, target.type, target.currency, target.customKpiUnit)} gap into an actionable quest
+                    </h4>
+                    <p className="text-[11px] text-slate-300 max-w-xl">
+                      Select a battle archetype (Boss Fight, Whale Strike, Pipeline Blitz), tie candidate deals, track milestone checkpoints, and reward reps with XP upon victory!
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setShowMissionModal(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/30 flex items-center gap-2 transition-all cursor-pointer shrink-0 self-start sm:self-center"
+                  >
+                    <Swords size={14} />
+                    <span>Launch New Quest</span>
+                  </button>
+                </div>
+
+                {/* Active Quests for this Target */}
+                {targetMissions.length > 0 ? (
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Active Missions Linked to this Target ({targetMissions.length}):
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {targetMissions.map((mission) => {
+                        const assignee = users.find((u) => u.id === mission.assigneeId);
+                        const completedMilestones = (mission.milestones || []).filter((m) => m.completed).length;
+                        const totalMilestones = mission.milestones?.length || 0;
+
+                        return (
+                          <div
+                            key={mission.id}
+                            className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/80 space-y-2"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="font-bold text-xs text-white line-clamp-1">{mission.title}</div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                  <span>Rep: <strong className="text-slate-200">{assignee?.name || 'Unassigned'}</strong></span>
+                                  <span>·</span>
+                                  <span>Due: {mission.deadline}</span>
+                                </div>
+                              </div>
+                              {mission.xpReward && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                                  +{mission.xpReward} XP
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-slate-300">{mission.status}</span>
+                                <span className="font-bold text-indigo-400">{mission.completionPercentage}%</span>
+                              </div>
+                              <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="bg-indigo-500 h-full rounded-full transition-all"
+                                  style={{ width: `${mission.completionPercentage}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                              <span>
+                                {totalMilestones > 0
+                                  ? `${completedMilestones}/${totalMilestones} milestones done`
+                                  : 'No milestones set'}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  onClose();
+                                  setActiveNav('tasks');
+                                }}
+                                className="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-0.5"
+                              >
+                                View in Tasks <ArrowRight size={10} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-slate-800/40 rounded-xl border border-dashed border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>No active missions configured for this target yet.</span>
+                    <button
+                      onClick={() => setShowMissionModal(true)}
+                      className="text-indigo-400 hover:text-indigo-300 font-semibold"
+                    >
+                      Create First Mission &rarr;
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Tactical Mathematical Requirement */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Deals Needed to Close Gap
+                    </span>
+                    <Briefcase size={15} className="text-indigo-600" />
+                  </div>
+                  <div className="text-2xl font-bold text-slate-900">
+                    {dealsNeeded} {dealsNeeded === 1 ? 'Deal' : 'Deals'}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Based on your team's average deal size of <strong>${avgDealSize.toLocaleString()}</strong>.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      3x Pipeline Safety Rule
+                    </span>
+                    <TrendingUp size={15} className="text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-bold text-amber-700">
+                    ${recommendedPipelineCoverage.toLocaleString()}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Maintain 300% open pipeline coverage to absorb standard drop-offs and hit 100% quota.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Candidate Pipeline
+                    </span>
+                    <DollarSign size={15} className="text-emerald-600" />
+                  </div>
+                  <div className="text-2xl font-bold text-emerald-700">
+                    {candidateDeals.length} Open Deals
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Owned by this target's assignees ready to be advanced to Won.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actionable Pipeline Deals (The Direct Path to Achieving This Target) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Zap size={14} className="text-indigo-600" />
+                      <span>Open Pipeline Deals That Can Bridge the Target Gap</span>
+                    </h4>
+                    <p className="text-slate-500 text-[11px]">
+                      Deals owned by this target's assigned representatives. Moving any of these deals to <strong>"Closed Won"</strong> instantly increases this target's progress!
+                    </p>
+                  </div>
+
+                  {onNavigateToDeals && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onNavigateToDeals();
+                      }}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <span>Open Full Pipeline</span>
+                      <ArrowRight size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {candidateDeals.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 space-y-2">
+                    <p className="text-slate-600 font-medium text-xs">
+                      No open deals currently in the pipeline owned by assigned representatives.
+                    </p>
+                    <p className="text-slate-500 text-[11px]">
+                      Create new deals in the Deals module or reassign existing pipeline opportunities to target members.
+                    </p>
+                    {onNavigateToDeals && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          onNavigateToDeals();
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <Briefcase size={13} />
+                        <span>Go to Deals to Create Opportunity</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
+                    {candidateDeals.slice(0, 5).map((deal) => {
+                      const owner = users.find((u) => u.id === deal.ownerId);
+                      const gapImpactPercent = remaining > 0 ? Math.min(100, Math.round(((deal.value || 0) / remaining) * 100)) : 100;
+
+                      return (
+                        <div key={deal.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-xs">{deal.title}</span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200 capitalize">
+                                {deal.stage}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Closes {gapImpactPercent}% of gap
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
+                              <span>Owner: <strong className="text-slate-700">{owner?.name || 'Assigned Rep'}</strong></span>
+                              <span>·</span>
+                              <span>Close Date: <strong>{deal.expectedCloseDate || 'Not specified'}</strong></span>
+                              <span>·</span>
+                              <span>Product: {deal.product}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 self-end sm:self-center">
+                            <div className="text-right">
+                              <div className="font-bold text-slate-900 text-sm">
+                                ${deal.value.toLocaleString()}
+                              </div>
+                              <div className="text-[10px] text-slate-500">Pipeline Value</div>
+                            </div>
+
+                            {onMoveDealStage && (
+                              <button
+                                onClick={() => {
+                                  onMoveDealStage(deal.id, 'won');
+                                  setDealActionNotice(
+                                    `Marked "${deal.title}" as Won! Added $${deal.value.toLocaleString()} toward this target.`
+                                  );
+                                }}
+                                title="Move deal directly to Closed Won to achieve target"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors"
+                              >
+                                <CheckCircle2 size={13} />
+                                <span>Mark as Won</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 4-Step Quota Achievement Guide */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+                  The 4 Steps to Achieving This Target
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                    <div>
+                      <strong className="text-slate-800">Ensure Rep Attribution:</strong>
+                      <p className="text-slate-600 text-[11px]">Deals must be owned by one of the {target.assignedUserIds.length} assigned colleagues.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                    <div>
+                      <strong className="text-slate-800">Check Close Window:</strong>
+                      <p className="text-slate-600 text-[11px]">The close date must fall between {target.startDate} and {target.endDate}.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
+                    <div>
+                      <strong className="text-slate-800">Advance to "Closed Won":</strong>
+                      <p className="text-slate-600 text-[11px]">Move deals to Won in Kanban pipeline, deal detail, or complete counter sales via POS.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">4</span>
+                    <div>
+                      <strong className="text-slate-800">Live Meter Recalculation:</strong>
+                      <p className="text-slate-600 text-[11px]">The CRM immediately counts the won revenue toward this target's completion.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -743,6 +1336,47 @@ export const TargetDetailModal: React.FC<TargetDetailModalProps> = ({
             </div>
           </form>
         </div>
+      )}
+
+      {/* Target Mission Creator Modal */}
+      {showMissionModal && (
+        <TargetMissionModal
+          isOpen={showMissionModal}
+          onClose={() => setShowMissionModal(false)}
+          targetCalculation={calculation}
+          allTargets={[calculation]}
+          deals={deals}
+          users={users}
+          currentUser={currentUser}
+          onDeployMission={(taskData) => {
+            addTask(taskData);
+            setActiveTab('how_to_achieve');
+          }}
+        />
+      )}
+
+      {/* Task Review Modal */}
+      {reviewModalTask && (
+        <TaskReviewModal
+          task={reviewModalTask}
+          onClose={() => setReviewModalTask(null)}
+        />
+      )}
+
+      {/* Task Evidence Submission Modal */}
+      {submitModalTask && (
+        <TaskEvidenceSubmissionModal
+          task={submitModalTask}
+          onClose={() => setSubmitModalTask(null)}
+        />
+      )}
+
+      {/* Task Blocker Modal */}
+      {blockerModalTask && (
+        <TaskBlockerModal
+          task={blockerModalTask}
+          onClose={() => setBlockerModalTask(null)}
+        />
       )}
     </div>
   );
